@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cup Run</title>
+<style>
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #111;
+    font-family: sans-serif;
+    color: #eee;
+  }
+  h1 { margin: 8px 0; }
+  #hud { margin-bottom: 8px; font-size: 20px; }
+  canvas {
+    border: 2px solid #444;
+    border-radius: 6px;
+  }
+  #msg {
+    margin-top: 10px;
+    height: 24px;
+    color: #ffe066;
+    font-weight: bold;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<h1>Cup Run</h1>
+<div id="hud">Cup: 0 / 50</div>
+<canvas id="game" width="800" height="450"></canvas>
+<div id="msg">Arrows/AD to move, Space/Up to jump. Hop the cups, jump the gaps!</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+const gravity = 0.5;
+const jumpPower = -11;
+const moveSpeed = 3.6;
+const playerW = 20, playerH = 26;
+const groundY = 360;
+const coyoteTime = 120;
+const TOTAL_CUPS = 50;
+const CHECKPOINT_AFTER = [4, 14];
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function beep(freq, duration, type, volume) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.value = freq;
+  gain.gain.value = volume || 0.15;
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+  osc.stop(audioCtx.currentTime + duration);
+}
+function playJump() { beep(480, 0.07, 'square', 0.08); }
+function playCupPass() { beep(700, 0.06, 'sine', 0.1); }
+function playCheckpoint() { beep(700, 0.09, 'sine', 0.14); setTimeout(() => beep(1050, 0.12, 'sine', 0.14), 80); }
+function playFall() { beep(160, 0.25, 'sawtooth', 0.15); }
+function playWin() {
+  [660, 880, 990, 1320].forEach((f, i) => setTimeout(() => beep(f, 0.16, 'sine', 0.15), i * 130));
+}
+
+function buildCourse() {
+  const groundSegments = [];
+  const lowBlocks = [];
+  const cupMarkers = [];
+  const checkpointMarkers = [];
+  let x = 60, segStart = x;
+
+  for (let i = 0; i < TOTAL_CUPS; i++) {
+    const lowBlockH = Math.min(24, 10 + i * 0.3);
+    const gapWidth = Math.min(100, 55 + i * 0.9);
+    const cupW = Math.max(55, 92 - i * 0.8);
+
+    lowBlocks.push({ x, y: groundY - lowBlockH, w: 16, h: lowBlockH, idx: i });
+    x += 16 + 46;
+
+    const pitStart = x;
+    groundSegments.push({ x1: segStart, x2: pitStart });
+    x = pitStart + gapWidth;
+    const cupStart = x;
+    cupMarkers.push({ x: cupStart, w: cupW, idx: i });
+    x += cupW;
+    segStart = cupStart;
+
+    x += 44;
+    if (CHECKPOINT_AFTER.includes(i)) {
+      checkpointMarkers.push({ x, cupIndex: i });
+      x += 34;
+    }
+  }
+  groundSegments.push({ x1: segStart, x2: x + 80 });
+  const flagX = x + 40;
+  const worldWidth = flagX + 150;
+  return { groundSegments, lowBlocks, cupMarkers, checkpointMarkers, flagX, worldWidth };
+}
+
+let course = buildCourse();
+let player, keys, camX = 0, t = 0, lastGroundTime = -9999;
+let cupsCleared = 0, checkpointX = 60, checkpointsHit = [], state = 'playing';
+
+function spawnAt(x) {
+  player = { x, y: groundY - playerH, vx: 0, vy: 0, onGround: false, facing: 1 };
+  lastGroundTime = -9999;
+}
+
+function resetGame() {
+  cupsCleared = 0;
+  checkpointX = 60;
+  checkpointsHit = [];
+  state = 'playing';
+  spawnAt(60);
+  document.getElementById('hud').textContent = 'Cup: 0 / ' + TOTAL_CUPS;
+  document.getElementById('msg').textContent = 'Arrows/AD to move, Space/Up to jump. Hop the cups, jump the gaps!';
+}
+
+keys = { left: false, right: false, jump: false };
+document.addEventListener('keydown', e => {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+  if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') {
+    e.preventDefault();
+    keys.jump = true;
+    if (state === 'win') resetGame();
+  }
+});
+document.addEventListener('keyup', e => {
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+  if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keys.jump = false;
+});
+
+function isOverGround(px) {
+  return course.groundSegments.some(s => px >= s.x1 && px <= s.x2);
+}
+
+function update() {
+  t++;
+  if (state !== 'playing') return;
+
+  if (keys.left) { player.vx = -moveSpeed; player.facing = -1; }
+  else if (keys.right) { player.vx = moveSpeed; player.facing = 1; }
+  else player.vx = 0;
+
+  const canCoyoteJump = player.onGround || (t - lastGroundTime) * 16.6 < coyoteTime;
+  if (keys.jump && canCoyoteJump) {
+    player.vy = jumpPower;
+    player.onGround = false;
+    playJump();
+  }
+
+  player.x += player.vx;
+  course.lowBlocks.forEach(b => {
+    const overlapX = player.x + playerW > b.x && player.x < b.x + b.w;
+    const bodyBelowTop = player.y + playerH > b.y + 3;
+    if (overlapX && bodyBelowTop) {
+      if (player.x + playerW / 2 < b.x + b.w / 2) player.x = b.x - playerW;
+      else player.x = b.x + b.w;
+    }
+  });
+  player.x = Math.max(0, Math.min(player.x, course.worldWidth - playerW));
+
+  const prevBottom = player.y + playerH;
+  player.vy += gravity;
+  player.y += player.vy;
+
+  let landed = false;
+  const footX = player.x + playerW / 2;
+  if (isOverGround(footX) && player.y + playerH >= groundY && prevBottom <= groundY + 2 && player.vy >= 0) {
+    player.y = groundY - playerH;
+    player.vy = 0;
+    landed = true;
+  }
+  course.lowBlocks.forEach(b => {
+    const withinX = player.x + playerW > b.x && player.x < b.x + b.w;
+    const newBottom = player.y + playerH;
+    if (withinX && prevBottom <= b.y + 2 && newBottom >= b.y && player.vy >= 0) {
+      player.y = b.y - playerH;
+      player.vy = 0;
+      landed = true;
+    }
+  });
+  player.onGround = landed;
+  if (landed) lastGroundTime = t;
+
+  course.lowBlocks.forEach(b => {
+    if (!b.passed && player.x > b.x + b.w) {
+      b.passed = true;
+      cupsCleared = b.idx + 1;
+      document.getElementById('hud').textContent = 'Cup: ' + cupsCleared + ' / ' + TOTAL_CUPS;
+      playCupPass();
+    }
+  });
+
+  course.checkpointMarkers.forEach(cm => {
+    if (!checkpointsHit.includes(cm.cupIndex) && player.x > cm.x) {
+      checkpointsHit.push(cm.cupIndex);
+      checkpointX = cm.x - 20;
+      playCheckpoint();
+    }
+  });
+
+  if (player.y > H + 150) {
+    playFall();
+    spawnAt(checkpointX);
+  }
+
+  if (player.x + playerW > course.flagX) {
+    state = 'win';
+    playWin();
+    document.getElementById('msg').textContent = 'You beat all ' + TOTAL_CUPS + ' cups! Press Space to play again';
+  }
+
+  camX = Math.max(0, Math.min(player.x - 300, course.worldWidth - W));
+}
+
+function drawBackground() {
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#6ec6ff');
+  grad.addColorStop(1, '#dff3ff');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  for (let i = 0; i < 6; i++) {
+    const cx = ((i * 240 - camX * 0.3) % (W + 300) + (W + 300)) % (W + 300) - 150;
+    ctx.beginPath();
+    ctx.ellipse(cx, 60 + (i % 3) * 30, 28, 14, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx + 20, 55 + (i % 3) * 30, 20, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawGround() {
+  course.groundSegments.forEach(s => {
+    const x1 = s.x1 - camX, x2 = s.x2 - camX;
+    if (x2 < -20 || x1 > W + 20) return;
+    ctx.fillStyle = '#c98a3c';
+    ctx.fillRect(x1, groundY, x2 - x1, H - groundY);
+    ctx.fillStyle = '#5cb85c';
+    ctx.fillRect(x1, groundY, x2 - x1, 8);
+  });
+}
+
+function drawCupShape(x, yBase, w, h, rimColor) {
+  ctx.fillStyle = rimColor;
+  ctx.beginPath();
+  ctx.moveTo(x - w / 2, yBase - h);
+  ctx.lineTo(x + w / 2, yBase - h);
+  ctx.lineTo(x + w * 0.32, yBase);
+  ctx.lineTo(x - w * 0.32, yBase);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#a02020';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x - w / 2 + 4, yBase - h + 3);
+  ctx.lineTo(x + w / 2 - 4, yBase - h + 3);
+  ctx.stroke();
+}
+
+function drawLowBlocks() {
+  course.lowBlocks.forEach(b => {
+    const sx = b.x - camX;
+    if (sx < -40 || sx > W + 40) return;
+    drawCupShape(sx + b.w / 2, groundY, b.w + 8, b.h, '#d63333');
+  });
+}
+
+function drawCupMarkers() {
+  course.cupMarkers.forEach(c => {
+    const sx = c.x - camX;
+    if (sx < -60 || sx > W + 60) return;
+    const hue = c.idx % 3 === 0 ? '#3f6fd6' : c.idx % 3 === 1 ? '#d63333' : '#2ecc71';
+    drawCupShape(sx + c.w / 2, groundY, c.w, Math.max(22, 34 - c.idx * 0.15), hue);
+  });
+}
+
+function drawFlag() {
+  const x = course.flagX - camX;
+  ctx.strokeStyle = '#ccc';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(x, groundY);
+  ctx.lineTo(x, groundY - 240);
+  ctx.stroke();
+  const wave = Math.sin(t * 0.1) * 6;
+  ctx.fillStyle = '#f2c40f';
+  ctx.beginPath();
+  ctx.moveTo(x, groundY - 230);
+  ctx.lineTo(x + 30 + wave, groundY - 218);
+  ctx.lineTo(x, groundY - 206);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawCheckpointFlags() {
+  course.checkpointMarkers.forEach(cm => {
+    const sx = cm.x - camX;
+    if (sx < -30 || sx > W + 30) return;
+    ctx.strokeStyle = '#ccc';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(sx, groundY);
+    ctx.lineTo(sx, groundY - 44);
+    ctx.stroke();
+    ctx.fillStyle = checkpointsHit.includes(cm.cupIndex) ? '#2ecc71' : '#888';
+    ctx.beginPath();
+    ctx.moveTo(sx, groundY - 44);
+    ctx.lineTo(sx + 16, groundY - 38);
+    ctx.lineTo(sx, groundY - 32);
+    ctx.closePath();
+    ctx.fill();
+  });
+}
+
+function drawPlayer() {
+  const x = player.x - camX, y = player.y;
+  ctx.save();
+  ctx.translate(x + playerW / 2, y + playerH / 2);
+  ctx.scale(player.facing, 1);
+  ctx.fillStyle = '#3fae4a';
+  ctx.fillRect(-playerW / 2, -playerH / 2 + 6, playerW, playerH - 6);
+  ctx.fillStyle = '#ffd9a0';
+  ctx.beginPath();
+  ctx.arc(0, -playerH / 2 + 2, 9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#2a7a35';
+  ctx.beginPath();
+  ctx.moveTo(-9, -playerH / 2 - 5);
+  ctx.lineTo(9, -playerH / 2 - 5);
+  ctx.lineTo(0, -playerH / 2 + 6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#222';
+  ctx.beginPath();
+  ctx.arc(4, -playerH / 2, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function draw() {
+  drawBackground();
+  drawGround();
+  drawLowBlocks();
+  drawCupMarkers();
+  drawCheckpointFlags();
+  drawFlag();
+  drawPlayer();
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+resetGame();
+loop();
+</script>
+</body>
+</html>

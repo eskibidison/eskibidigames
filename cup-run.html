@@ -121,10 +121,10 @@ function startBoss() {
     player: { x: 100, y: 0, vx: 0, vy: 0, onGround: false, facing: 1 },
     groundY: 380,
     gravity: 0.5,
-    jumpPower: -11.5
+    jumpPower: -13
   };
   boss.player.y = boss.groundY - 28;
-  dragon = { x: 550, baseY: 190, y: 190, dir: 1, hitFlash: 0, invuln: 0 };
+  dragon = { x: 550, baseY: 268, y: 268, dir: 1, hitFlash: 0, invuln: 0 };
   fireballs = [];
   dragonHits = 0;
   document.getElementById('hud').textContent = 'Dragon Health: 10 / 10';
@@ -192,12 +192,12 @@ function updateBoss() {
   dragon.x += dragon.dir * 1.4;
   if (dragon.x > 680) dragon.dir = -1;
   if (dragon.x < 300) dragon.dir = 1;
-  dragon.y = dragon.baseY + Math.sin(t * 0.04) * 14;
+  dragon.y = dragon.baseY + Math.sin(t * 0.04) * 8;
   if (dragon.invuln > 0) dragon.invuln--;
   if (dragon.hitFlash > 0) dragon.hitFlash--;
 
-  const dragonTop = dragon.y - 26;
-  const overlapX = p.x + 22 > dragon.x - 34 && p.x < dragon.x + 34;
+  const dragonTop = dragon.y - 40;
+  const overlapX = p.x + 22 > dragon.x - 40 && p.x < dragon.x + 45;
   const overlapY = p.y + 28 > dragonTop && p.y < dragon.y + 10;
   if (overlapX && overlapY && dragon.invuln === 0) {
     if (p.vy > 0 && prevBottom <= dragonTop + 14) {
@@ -221,7 +221,7 @@ function updateBoss() {
   if (t % 150 === 0) {
     const dir = p.x < dragon.x ? -1 : 1;
     for (let i = 0; i < 3; i++) {
-      fireballs.push({ x: dragon.x, y: dragon.y, vx: dir * (3 + i * 0.4), life: 120 });
+      fireballs.push({ x: dragon.x + 70, y: dragon.y - 18, vx: dir * (3 + i * 0.4), life: 120 });
     }
   }
   fireballs.forEach(f => { f.x += f.vx; f.life--; });
@@ -322,37 +322,93 @@ function drawLanded() {
 
 function drawDragon() {
   const x = dragon.x, y = dragon.y;
-  ctx.fillStyle = dragon.hitFlash > 0 ? '#fff' : '#6a3fbf';
+  const flash = dragon.hitFlash > 0;
+  const bodyColor = flash ? '#fff' : '#3f6fd6';
+  const wingColor = flash ? '#fff' : '#6a3fbf';
+  const wingFlap = Math.sin(t * 0.12) * 8;
+
+  ctx.fillStyle = wingColor;
   ctx.beginPath();
-  ctx.ellipse(x - 20, y + 6, 22, 12, -0.3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(x + 20, y + 6, 22, 12, 0.3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = dragon.hitFlash > 0 ? '#fff' : '#3f6fd6';
-  ctx.beginPath();
-  ctx.ellipse(x, y, 34, 20, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(x + 34, y - 8, 15, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#2a2a2a';
-  ctx.beginPath();
-  ctx.arc(x + 40, y - 12, 2.5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#e0812a';
-  ctx.beginPath();
-  ctx.moveTo(x + 48, y - 6);
-  ctx.lineTo(x + 70, y - 2);
-  ctx.lineTo(x + 48, y + 2);
+  ctx.moveTo(x - 8, y - 6);
+  ctx.lineTo(x - 46, y - 34 - wingFlap);
+  ctx.lineTo(x - 30, y - 16);
+  ctx.lineTo(x - 40, y - 4 - wingFlap * 0.4);
+  ctx.lineTo(x - 18, y + 2);
   ctx.closePath();
   ctx.fill();
+  ctx.strokeStyle = '#2a2070';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.fillStyle = '#2a4fae';
+  ctx.beginPath();
+  ctx.moveTo(x - 30, y + 8);
+  ctx.quadraticCurveTo(x - 55, y + 6, x - 72, y + 18);
+  ctx.quadraticCurveTo(x - 60, y + 12, x - 40, y + 14);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = bodyColor;
+  ctx.beginPath();
+  ctx.ellipse(x, y, 36, 15, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = bodyColor;
+  ctx.lineWidth = 14;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x + 24, y - 2);
+  ctx.quadraticCurveTo(x + 40, y - 16, x + 46, y - 24);
+  ctx.stroke();
+
+  ctx.fillStyle = bodyColor;
+  ctx.beginPath();
+  ctx.arc(x + 48, y - 26, 13, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#2a4fae';
+  ctx.beginPath();
+  ctx.moveTo(x + 38, y - 36);
+  ctx.lineTo(x + 42, y - 46);
+  ctx.lineTo(x + 46, y - 37);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x + 48, y - 37);
+  ctx.lineTo(x + 52, y - 47);
+  ctx.lineTo(x + 55, y - 37);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#e0812a';
+  ctx.beginPath();
+  ctx.moveTo(x + 58, y - 22);
+  ctx.lineTo(x + 80, y - 18);
+  ctx.lineTo(x + 58, y - 14);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#2a2a2a';
+  ctx.beginPath();
+  ctx.arc(x + 52, y - 29, 2.3, 0, Math.PI * 2);
+  ctx.fill();
+
   ctx.fillStyle = '#c9a0e0';
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 5; i++) {
+    const sx = x + 20 - i * 12;
+    const sy = y - 14 + i * 0.5;
     ctx.beginPath();
-    ctx.arc(x - 10 + i * 8, y - 14, 3, 0, Math.PI * 2);
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx - 4, sy - 8);
+    ctx.lineTo(sx + 2, sy - 2);
+    ctx.closePath();
     ctx.fill();
   }
+
+  ctx.fillStyle = '#2a4fae';
+  [-14, 10].forEach(dx => {
+    ctx.fillRect(x + dx - 2, y + 10, 5, 10);
+  });
 }
 
 function drawBoss() {

@@ -20,6 +20,7 @@
   canvas {
     border: 2px solid #444;
     border-radius: 6px;
+    image-rendering: pixelated;
   }
   #msg { margin-top: 10px; font-size: 14px; color: #ccc; text-align: center; }
 </style>
@@ -64,108 +65,83 @@ const TYPES = [
 const WEIGHTED = TYPES.flatMap(t => Array(t.weight).fill(t));
 
 function stem(x, y, h, s) {
-  ctx.strokeStyle = '#3d8b3d';
-  ctx.lineWidth = 2.5 * s;
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x, y - h * s);
-  ctx.stroke();
+  ctx.fillStyle = '#2d6b2d';
+  ctx.fillRect(Math.round(x - 1.5 * s), Math.round(y - h * s), Math.round(3 * s), Math.round(h * s));
+  ctx.strokeStyle = '#1a3d1a';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(Math.round(x - 1.5 * s), Math.round(y - h * s), Math.round(3 * s), Math.round(h * s));
+}
+
+function px(cx, cy, size, color) {
+  const half = size / 2;
+  const rx = Math.round(cx - half), ry = Math.round(cy - half), rs = Math.round(size);
+  ctx.fillStyle = color;
+  ctx.fillRect(rx, ry, rs, rs);
+  ctx.strokeStyle = '#1a1a1a';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(rx, ry, rs, rs);
 }
 
 function drawDaisy(x, y, s) {
   stem(x, y + 12 * s, 16, s);
-  ctx.fillStyle = '#fff';
+  const cy = y - 4 * s;
   for (let i = 0; i < 6; i++) {
     const ang = (i / 6) * Math.PI * 2;
-    ctx.beginPath();
-    ctx.ellipse(x + Math.cos(ang) * 7 * s, y - 4 * s + Math.sin(ang) * 7 * s, 4.5 * s, 2.5 * s, ang, 0, Math.PI * 2);
-    ctx.fill();
+    px(x + Math.cos(ang) * 7 * s, cy + Math.sin(ang) * 7 * s, 6 * s, i % 2 === 0 ? '#ffffff' : '#eef2ff');
   }
-  ctx.fillStyle = '#f2d80f';
-  ctx.beginPath();
-  ctx.arc(x, y - 4 * s, 4 * s, 0, Math.PI * 2);
-  ctx.fill();
+  px(x, cy, 7 * s, '#f2d80f');
 }
 
 function drawPoppy(x, y, s) {
   stem(x, y + 10 * s, 14, s);
-  ctx.fillStyle = '#e05a1f';
+  const cy = y - 6 * s;
   for (let i = 0; i < 5; i++) {
     const ang = (i / 5) * Math.PI * 2;
-    ctx.beginPath();
-    ctx.ellipse(x + Math.cos(ang) * 5 * s, y - 6 * s + Math.sin(ang) * 5 * s, 4.5 * s, 3 * s, ang, 0, Math.PI * 2);
-    ctx.fill();
+    px(x + Math.cos(ang) * 5.5 * s, cy + Math.sin(ang) * 5.5 * s, 6.5 * s, i % 2 === 0 ? '#e05a1f' : '#c8451a');
   }
-  ctx.fillStyle = '#2b1a0a';
-  ctx.beginPath();
-  ctx.arc(x, y - 6 * s, 2.5 * s, 0, Math.PI * 2);
-  ctx.fill();
+  px(x, cy, 5 * s, '#2b1a0a');
 }
 
 function drawSunflower(x, y, s) {
   stem(x, y + 12 * s, 16, s);
   const cy = y - 4 * s;
-  ctx.fillStyle = '#f2c40f';
   for (let i = 0; i < 8; i++) {
     const ang = (i / 8) * Math.PI * 2;
-    ctx.beginPath();
-    ctx.ellipse(x + Math.cos(ang) * 8 * s, cy + Math.sin(ang) * 8 * s, 4 * s, 2.5 * s, ang, 0, Math.PI * 2);
-    ctx.fill();
+    px(x + Math.cos(ang) * 8 * s, cy + Math.sin(ang) * 8 * s, 6 * s, i % 2 === 0 ? '#f2c40f' : '#d9a900');
   }
-  ctx.fillStyle = '#6b4522';
-  ctx.beginPath();
-  ctx.arc(x, cy, 5 * s, 0, Math.PI * 2);
-  ctx.fill();
+  px(x, cy, 8 * s, '#6b4522');
 }
 
 function drawTulip(x, y, s, color) {
   stem(x, y + 10 * s, 14, s);
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.moveTo(x - 5 * s, y - 4 * s);
-  ctx.quadraticCurveTo(x - 6 * s, y - 12 * s, x, y - 14 * s);
-  ctx.quadraticCurveTo(x + 6 * s, y - 12 * s, x + 5 * s, y - 4 * s);
-  ctx.quadraticCurveTo(x, y - 7 * s, x - 5 * s, y - 4 * s);
-  ctx.closePath();
-  ctx.fill();
+  const cy = y - 4 * s;
+  px(x, cy - 8 * s, 7 * s, color);
+  px(x - 5 * s, cy - 3 * s, 6 * s, color);
+  px(x + 5 * s, cy - 3 * s, 6 * s, color);
 }
 
 function drawRose(x, y, s) {
   stem(x, y + 12 * s, 16, s);
-  ctx.fillStyle = '#3d8b3d';
-  ctx.beginPath();
-  ctx.arc(x, y, 9 * s, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#d63333';
+  px(x, y, 15 * s, '#3d8b3d');
   for (let i = 0; i < 5; i++) {
     const ang = (i / 5) * Math.PI * 2;
-    ctx.beginPath();
-    ctx.arc(x + Math.cos(ang) * 5 * s, y + Math.sin(ang) * 5 * s, 3.2 * s, 0, Math.PI * 2);
-    ctx.fill();
+    px(x + Math.cos(ang) * 5 * s, y + Math.sin(ang) * 5 * s, 5.5 * s, i % 2 === 0 ? '#d63333' : '#b82a2a');
   }
 }
 
 function drawGolden(x, y, s, t) {
-  const glow = 0.6 + 0.4 * Math.sin(t * 0.15);
+  const cy = y - 4 * s;
+  const glow = 0.5 + 0.4 * Math.sin(t * 0.15);
   ctx.save();
   ctx.globalAlpha = glow;
-  ctx.fillStyle = '#fff7c0';
-  ctx.beginPath();
-  ctx.arc(x, y - 4 * s, 16 * s, 0, Math.PI * 2);
-  ctx.fill();
+  px(x, cy, 28 * s, '#fff7c0');
   ctx.restore();
   stem(x, y + 12 * s, 16, s);
-  ctx.fillStyle = '#ffd700';
   for (let i = 0; i < 8; i++) {
     const ang = (i / 8) * Math.PI * 2;
-    ctx.beginPath();
-    ctx.ellipse(x + Math.cos(ang) * 8 * s, y - 4 * s + Math.sin(ang) * 8 * s, 4 * s, 2.5 * s, ang, 0, Math.PI * 2);
-    ctx.fill();
+    px(x + Math.cos(ang) * 8 * s, cy + Math.sin(ang) * 8 * s, 6 * s, i % 2 === 0 ? '#ffd700' : '#e0b800');
   }
-  ctx.fillStyle = '#e0812a';
-  ctx.beginPath();
-  ctx.arc(x, y - 4 * s, 4.5 * s, 0, Math.PI * 2);
-  ctx.fill();
+  px(x, cy, 8 * s, '#e0812a');
 }
 
 const TULIP_COLORS = ['#d63333', '#f2c40f', '#e79fc4', '#fff'];
@@ -272,22 +248,56 @@ function update() {
 }
 
 function drawPlayer() {
+  const x = Math.round(player.x), y = Math.round(player.y);
+  const walk = (keys['ArrowLeft'] || keys['KeyA'] || keys['ArrowRight'] || keys['KeyD'] || keys['ArrowUp'] || keys['KeyW'] || keys['ArrowDown'] || keys['KeyS'])
+    ? Math.floor(t / 8) % 2 : 0;
+
+  ctx.fillStyle = '#2a2a2a';
+  ctx.fillRect(x - 6, y + 12, 5, 6 + walk * 2);
+  ctx.fillRect(x + 1, y + 12, 5, 8 - walk * 2);
+
   ctx.fillStyle = '#3b6bd6';
-  ctx.beginPath();
-  ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.fillRect(x - 9, y - 6, 18, 20);
+  ctx.strokeStyle = '#1a1a1a';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x - 9, y - 6, 18, 20);
+
   ctx.fillStyle = '#ffd9a0';
-  ctx.beginPath();
-  ctx.arc(player.x, player.y - player.size - 4, 8, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.fillRect(x - 8, y - 22, 16, 16);
+  ctx.strokeRect(x - 8, y - 22, 16, 16);
+
+  ctx.fillStyle = '#6b4522';
+  ctx.fillRect(x - 9, y - 26, 18, 7);
+  ctx.strokeRect(x - 9, y - 26, 18, 7);
+
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(x - 5, y - 15, 3, 3);
+  ctx.fillRect(x + 2, y - 15, 3, 3);
+}
+
+const TILE = 25;
+const tufts = [];
+for (let i = 0; i < 40; i++) {
+  tufts.push({ x: Math.floor(Math.random() * (W / TILE)) * TILE + TILE / 2, y: Math.floor(Math.random() * (H / TILE)) * TILE + TILE / 2 });
+}
+
+function drawBackground() {
+  for (let row = 0; row < H / TILE; row++) {
+    for (let col = 0; col < W / TILE; col++) {
+      ctx.fillStyle = (row + col) % 2 === 0 ? '#7fc76b' : '#74bd60';
+      ctx.fillRect(col * TILE, row * TILE, TILE, TILE);
+    }
+  }
+  ctx.fillStyle = '#5aa346';
+  tufts.forEach(tu => {
+    ctx.fillRect(tu.x - 2, tu.y - 3, 2, 5);
+    ctx.fillRect(tu.x + 2, tu.y - 3, 2, 5);
+    ctx.fillRect(tu.x, tu.y - 5, 2, 6);
+  });
 }
 
 function draw() {
-  ctx.fillStyle = '#7fc76b';
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = 'rgba(0,0,0,0.04)';
-  for (let i = 0; i < W; i += 20) ctx.fillRect(i, 0, 1, H);
-  for (let j = 0; j < H; j += 20) ctx.fillRect(0, j, W, 1);
+  drawBackground();
 
   flowers.forEach(f => drawFlower(f, t));
   drawPlayer();

@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hippo Hop: Space Edition</title>
+<style>
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    font-family: sans-serif;
+    color: #eee;
+  }
+  h1 { margin: 8px 0; }
+  #hud { margin-bottom: 8px; font-size: 20px; }
+  canvas {
+    background: #000;
+    border: 2px solid #444;
+    border-radius: 6px;
+  }
+  #msg {
+    margin-top: 10px;
+    height: 24px;
+    color: #ffe066;
+    font-weight: bold;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<h1>Hippo Hop: Space Edition</h1>
+<div id="hud">Level: 1 / 5 &nbsp;&nbsp; Coins: 0</div>
+<canvas id="game" width="700" height="500"></canvas>
+<div id="msg">Arrows/AD to move, Space/Up to jump. Hop across the hippos!</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const NUM_LEVELS = 5;
+
+const gravity = 0.5;
+const jumpPower = -11;
+const moveSpeed = 3.8;
+const playerW = 22, playerH = 26;
+const COUNTDOWN_FRAMES = 180;
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function beep(freq, duration, type, volume) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.value = freq;
+  gain.gain.value = volume || 0.15;
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+  osc.stop(audioCtx.currentTime + duration);
+}
+function playJump() { beep(480, 0.07, 'square', 0.08); }
+function playCoin() { beep(880, 0.08, 'sine', 0.13); setTimeout(() => beep(1320, 0.1, 'sine', 0.13), 60); }
+function playTick() { beep(600, 0.06, 'square', 0.12); }
+function playChomp() { beep(120, 0.35, 'sawtooth', 0.22); }
+function playLevelWin() { beep(660, 0.12, 'sine', 0.15); setTimeout(() => beep(880, 0.12, 'sine', 0.15), 110); setTimeout(() => beep(1100, 0.18, 'sine', 0.15), 220); }
+function playGameWin() {
+  [660, 880, 990, 1320].forEach((f, i) => setTimeout(() => beep(f, 0.18, 'sine', 0.16), i * 130));
+}
+
+let level = 1, totalCoins = 0;
+let player, keys, camX = 0, t = 0;
+let state = 'playing';
+let countdownFrames = 0;
+let stars = [];
+let currentLevel;
+
+for (let i = 0; i < 80; i++) {
+  stars.push({ x: Math.random() * 3000, y: Math.random() * H * 0.7, r: Math.random() * 1.8 + 0.5, seed: Math.random() * 10 });
+}
+
+function buildLevel(n) {
+  const count = 6 + n * 2;
+  const hippos = [];
+  let x = 80, y = 380;
+  for (let i = 0; i < count; i++) {
+    const w = 70;
+    hippos.push({ x, y, w, h: 26, bobSeed: Math.random() * 10 });
+    x += w + 85 + Math.random() * (35 + n * 4);
+    y = 380 + Math.sin(i * 0.6 + n) * 45;
+  }
+  const coins = [];
+  for (let i = 0; i < hippos.length - 1; i++) {
+    const a = hippos[i], b = hippos[i + 1];
+    coins.push({ x: (a.x + a.w + b.x) / 2, y: Math.min(a.y, b.y) - 45, collected: false, bobSeed: Math.random() * 10 });
+  }
+  const lastY = hippos[hippos.length - 1].y;
+  const padX = x + 10;
+  const pad = { x: padX, y: lastY, w: 140, h: 22 };
+  const poleX = padX + 70;
+  const poleTopY = lastY - 260;
+  const worldWidth = poleX + 200;
+  return { hippos, coins, pad, poleX, poleBaseY: lastY, poleTopY, worldWidth };
+}
+
+function spawnAtLevelStart() {
+  player = { x: 90, y: 340, vx: 0, vy: 0, onGround: false, standingOn: null, facing: 1 };
+}
+
+function startLevel(n) {
+  level = n;
+  currentLevel = buildLevel(n);
+  spawnAtLevelStart();
+  state = 'playing';
+  document.getElementById('hud').textContent = 'Level: ' + level + ' / ' + NUM_LEVELS + '    Coins: ' + totalCoins;
+  document.getElementById('msg').textContent = 'Arrows/AD to move, Space/Up to jump. Hop across the hippos!';
+}
+
+function fullRestart() {
+  totalCoins = 0;
+  startLevel(1);
+}
+
+keys = { left: false, right: false, jump: false };
+document.addEventListener('keydown', e => {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+  if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') {
+    e.preventDefault();
+    keys.jump = true;
+    if (state === 'countdown') {
+      winLevel();
+    } else if (state === 'caught') {
+      spawnAtLevelStart();
+      state = 'playing';
+      document.getElementById('msg').textContent = 'Try again! Hop across the hippos!';
+    } else if (state === 'gamewin') {
+      fullRestart();
+    }
+  }
+});
+document.addEventListener('keyup', e => {
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+  if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keys.jump = false;
+});
+
+function winLevel() {
+  playLevelWin();
+  if (level >= NUM_LEVELS) {
+    state = 'gamewin';
+    document.getElementById('msg').textContent = 'YOU WIN! Total Coins: ' + totalCoins + ' — Press Space to play again';
+    playGameWin();
+  } else {
+    state = 'levelwin';
+    document.getElementById('msg').textContent = 'Level ' + level + ' complete!';
+    setTimeout(() => startLevel(level + 1), 1200);
+  }
+}
+
+function allPlatforms() {
+  return [...currentLevel.hippos, currentLevel.pad];
+}
+
+function update() {
+  t++;
+
+  if (state === 'playing') {
+    if (keys.left) { player.vx = -moveSpeed; player.facing = -1; }
+    else if (keys.right) { player.vx = moveSpeed; player.facing = 1; }
+    else player.vx = 0;
+
+    if (keys.jump && player.onGround) {
+      player.vy = jumpPower;
+      player.onGround = false;
+      playJump();
+    }
+
+    const prevBottom = player.y + playerH;
+    player.vy += gravity;
+    player.x += player.vx;
+    player.y += player.vy;
+
+    let landed = false;
+    allPlatforms().forEach(p => {
+      const withinX = player.x + playerW > p.x && player.x < p.x + p.w;
+      const newBottom = player.y + playerH;
+      if (withinX && prevBottom <= p.y + 2 && newBottom >= p.y && player.vy >= 0) {
+        player.y = p.y - playerH;
+        player.vy = 0;
+        landed = true;
+      }
+    });
+    player.onGround = landed;
+
+    currentLevel.coins.forEach(c => {
+      if (!c.collected) {
+        const dx = (player.x + playerW / 2) - c.x;
+        const dy = (player.y + playerH / 2) - c.y;
+        if (Math.sqrt(dx * dx + dy * dy) < 22) {
+          c.collected = true;
+          totalCoins++;
+          document.getElementById('hud').textContent = 'Level: ' + level + ' / ' + NUM_LEVELS + '    Coins: ' + totalCoins;
+          playCoin();
+        }
+      }
+    });
+
+    if (player.y > H + 150) {
+      spawnAtLevelStart();
+    }
+
+    if (player.x + playerW > currentLevel.poleX - 14 && player.x < currentLevel.poleX + 14 && player.onGround) {
+      state = 'countdown';
+      countdownFrames = COUNTDOWN_FRAMES;
+      player.vx = 0;
+      document.getElementById('msg').textContent = 'PRESS SPACE! A dog is coming!';
+    }
+
+    camX = Math.max(0, Math.min(player.x - 220, currentLevel.worldWidth - W));
+  } else if (state === 'countdown') {
+    countdownFrames--;
+    if (countdownFrames % 60 === 0 && countdownFrames > 0) playTick();
+    if (countdownFrames <= 0) {
+      state = 'caught';
+      playChomp();
+      document.getElementById('msg').textContent = 'The dog got you! Press Space to try again.';
+    }
+  }
+}
+
+function drawStars() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#0a0a2a');
+  grad.addColorStop(1, '#1a0a3a');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  stars.forEach(s => {
+    const sx = s.x - camX * 0.3;
+    const wrapped = ((sx % (W + 400)) + (W + 400)) % (W + 400) - 200;
+    const twinkle = 0.5 + 0.5 * Math.sin(t * 0.05 + s.seed);
+    ctx.globalAlpha = 0.4 + twinkle * 0.6;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(wrapped, s.y, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
+  ctx.fillStyle = '#c9a0e0';
+  ctx.beginPath();
+  ctx.arc(560 - camX * 0.2, 90, 34, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#a878c9';
+  ctx.beginPath();
+  ctx.arc(548 - camX * 0.2, 78, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(572 - camX * 0.2, 100, 6, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#6fb3ff';
+  ctx.beginPath();
+  ctx.arc(180 - camX * 0.15, 60, 20, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawHippo(h) {
+  const bob = Math.sin(t * 0.05 + h.bobSeed) * 3;
+  const x = h.x - camX, y = h.y + bob;
+  ctx.fillStyle = '#8e8ea8';
+  ctx.beginPath();
+  ctx.ellipse(x + h.w / 2, y + h.h / 2, h.w / 2, h.h / 2 + 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#7676a0';
+  ctx.beginPath();
+  ctx.arc(x + 12, y - 2, 9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x + h.w - 12, y - 2, 9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#333';
+  ctx.beginPath();
+  ctx.arc(x + 14, y - 4, 2.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x + h.w - 14, y - 4, 2.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(x + h.w / 2, y + 4, 10, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.stroke();
+}
+
+function drawPad(p) {
+  const x = p.x - camX;
+  ctx.fillStyle = '#4a4a6a';
+  ctx.fillRect(x, p.y, p.w, p.h);
+  ctx.fillStyle = '#7a7ac0';
+  ctx.fillRect(x, p.y, p.w, 5);
+  for (let i = 0; i < p.w; i += 20) {
+    ctx.fillStyle = '#9a9ae0';
+    ctx.fillRect(x + i + 6, p.y + 9, 6, 6);
+  }
+}
+
+function drawPole() {
+  const x = currentLevel.poleX - camX;
+  ctx.strokeStyle = '#ccc';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(x, currentLevel.poleBaseY);
+  ctx.lineTo(x, currentLevel.poleTopY);
+  ctx.stroke();
+
+  const wave = Math.sin(t * 0.1) * 6;
+  ctx.fillStyle = state === 'countdown' || state === 'caught' ? '#e74c3c' : '#2ecc71';
+  ctx.beginPath();
+  ctx.moveTo(x, currentLevel.poleTopY);
+  ctx.lineTo(x + 34 + wave, currentLevel.poleTopY + 12);
+  ctx.lineTo(x, currentLevel.poleTopY + 24);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#666';
+  ctx.beginPath();
+  ctx.arc(x, currentLevel.poleTopY - 4, 5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawCoins() {
+  currentLevel.coins.forEach(c => {
+    if (c.collected) return;
+    const bob = Math.sin(t * 0.08 + c.bobSeed) * 4;
+    const x = c.x - camX, y = c.y + bob;
+    ctx.fillStyle = '#ffd700';
+    ctx.beginPath();
+    ctx.arc(x, y, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#c9a400';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+}
+
+function drawPlayer() {
+  const x = player.x - camX, y = player.y;
+  ctx.save();
+  ctx.translate(x + playerW / 2, y + playerH / 2);
+  ctx.scale(player.facing, 1);
+  ctx.fillStyle = '#3fae4a';
+  ctx.fillRect(-playerW / 2, -playerH / 2 + 6, playerW, playerH - 6);
+  ctx.fillStyle = '#ffd9a0';
+  ctx.beginPath();
+  ctx.arc(0, -playerH / 2 + 2, 9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#2a7a35';
+  ctx.beginPath();
+  ctx.moveTo(-9, -playerH / 2 - 5);
+  ctx.lineTo(9, -playerH / 2 - 5);
+  ctx.lineTo(0, -playerH / 2 + 6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#222';
+  ctx.beginPath();
+  ctx.arc(4, -playerH / 2, 1.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawDog(progress) {
+  const startX = camX - 60;
+  const targetX = player.x;
+  const dx = startX + (targetX - startX) * progress;
+  const x = dx - camX;
+  const y = player.y + playerH - 18;
+  ctx.fillStyle = '#a5713a';
+  ctx.fillRect(x - 16, y, 30, 16);
+  ctx.beginPath();
+  ctx.arc(x + 16, y + 2, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#7a4f24';
+  ctx.beginPath();
+  ctx.moveTo(x + 22, y - 6);
+  ctx.lineTo(x + 28, y - 14);
+  ctx.lineTo(x + 26, y - 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#3a2410';
+  ctx.beginPath();
+  ctx.arc(x + 20, y, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillRect(x - 20, y + 12, 6, 8);
+  ctx.fillRect(x + 6, y + 12, 6, 8);
+}
+
+function draw() {
+  drawStars();
+
+  currentLevel.hippos.forEach(drawHippo);
+  drawPad(currentLevel.pad);
+  drawCoins();
+  drawPole();
+
+  if (state !== 'caught') drawPlayer();
+
+  if (state === 'countdown') {
+    const progress = 1 - countdownFrames / COUNTDOWN_FRAMES;
+    drawDog(progress);
+    const secs = Math.ceil(countdownFrames / 60);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 48px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(secs > 0 ? secs : '', W / 2, 70);
+  }
+
+  if (state === 'caught') {
+    drawDog(1);
+    ctx.fillStyle = '#ff5555';
+    ctx.font = 'bold 28px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('CHOMP!', W / 2, 70);
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+startLevel(1);
+loop();
+</script>
+</body>
+</html>

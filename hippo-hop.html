@@ -42,11 +42,12 @@ const ctx = canvas.getContext('2d');
 const W = canvas.width, H = canvas.height;
 const NUM_LEVELS = 5;
 
-const gravity = 0.5;
-const jumpPower = -11;
+const gravity = 0.42;
+const jumpPower = -11.2;
 const moveSpeed = 3.8;
 const playerW = 22, playerH = 26;
 const COUNTDOWN_FRAMES = 180;
+const coyoteTime = 120;
 
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 function beep(freq, duration, type, volume) {
@@ -63,6 +64,7 @@ function beep(freq, duration, type, volume) {
 }
 function playJump() { beep(480, 0.07, 'square', 0.08); }
 function playCoin() { beep(880, 0.08, 'sine', 0.13); setTimeout(() => beep(1320, 0.1, 'sine', 0.13), 60); }
+function playCheckpoint() { beep(700, 0.09, 'sine', 0.14); setTimeout(() => beep(1050, 0.12, 'sine', 0.14), 80); }
 function playTick() { beep(600, 0.06, 'square', 0.12); }
 function playChomp() { beep(120, 0.35, 'sawtooth', 0.22); }
 function playLevelWin() { beep(660, 0.12, 'sine', 0.15); setTimeout(() => beep(880, 0.12, 'sine', 0.15), 110); setTimeout(() => beep(1100, 0.18, 'sine', 0.15), 220); }
@@ -71,7 +73,7 @@ function playGameWin() {
 }
 
 let level = 1, totalCoins = 0;
-let player, keys, camX = 0, t = 0;
+let player, keys, camX = 0, t = 0, lastGroundTime = -9999;
 let state = 'playing';
 let countdownFrames = 0;
 let stars = [];
@@ -88,13 +90,13 @@ function buildLevel(n) {
   for (let i = 0; i < count; i++) {
     const w = 70;
     hippos.push({ x, y, w, h: 26, bobSeed: Math.random() * 10 });
-    x += w + 85 + Math.random() * (35 + n * 4);
+    x += w + 70 + Math.random() * (28 + n * 3);
     y = 380 + Math.sin(i * 0.6 + n) * 45;
   }
   const coins = [];
   for (let i = 0; i < hippos.length - 1; i++) {
     const a = hippos[i], b = hippos[i + 1];
-    coins.push({ x: (a.x + a.w + b.x) / 2, y: Math.min(a.y, b.y) - 45, collected: false, bobSeed: Math.random() * 10 });
+    coins.push({ x: (a.x + a.w + b.x) / 2, y: Math.max(a.y, b.y) - 28, collected: false, bobSeed: Math.random() * 10 });
   }
   const lastY = hippos[hippos.length - 1].y;
   const padX = x + 10;
@@ -102,11 +104,25 @@ function buildLevel(n) {
   const poleX = padX + 70;
   const poleTopY = lastY - 260;
   const worldWidth = poleX + 200;
-  return { hippos, coins, pad, poleX, poleBaseY: lastY, poleTopY, worldWidth };
+  const halfwayIndex = Math.floor(hippos.length / 2);
+  return { hippos, coins, pad, poleX, poleBaseY: lastY, poleTopY, worldWidth, halfwayIndex, checkpointReached: false };
 }
 
 function spawnAtLevelStart() {
   player = { x: 90, y: 340, vx: 0, vy: 0, onGround: false, standingOn: null, facing: 1 };
+  lastGroundTime = -9999;
+}
+
+function respawnPlayer() {
+  if (currentLevel.checkpointReached) {
+    const h = currentLevel.hippos[currentLevel.halfwayIndex];
+    player.x = h.x + 10;
+    player.y = h.y - playerH;
+    player.vx = 0;
+    player.vy = 0;
+  } else {
+    spawnAtLevelStart();
+  }
 }
 
 function startLevel(n) {
@@ -134,7 +150,7 @@ document.addEventListener('keydown', e => {
     if (state === 'countdown') {
       winLevel();
     } else if (state === 'caught') {
-      spawnAtLevelStart();
+      respawnPlayer();
       state = 'playing';
       document.getElementById('msg').textContent = 'Try again! Hop across the hippos!';
     } else if (state === 'gamewin') {
@@ -161,10 +177,6 @@ function winLevel() {
   }
 }
 
-function allPlatforms() {
-  return [...currentLevel.hippos, currentLevel.pad];
-}
-
 function update() {
   t++;
 
@@ -173,7 +185,8 @@ function update() {
     else if (keys.right) { player.vx = moveSpeed; player.facing = 1; }
     else player.vx = 0;
 
-    if (keys.jump && player.onGround) {
+    const canCoyoteJump = player.onGround || (t - lastGroundTime) * 16.6 < coyoteTime;
+    if (keys.jump && canCoyoteJump) {
       player.vy = jumpPower;
       player.onGround = false;
       playJump();
@@ -185,22 +198,35 @@ function update() {
     player.y += player.vy;
 
     let landed = false;
-    allPlatforms().forEach(p => {
+    currentLevel.hippos.forEach((p, i) => {
       const withinX = player.x + playerW > p.x && player.x < p.x + p.w;
       const newBottom = player.y + playerH;
       if (withinX && prevBottom <= p.y + 2 && newBottom >= p.y && player.vy >= 0) {
         player.y = p.y - playerH;
         player.vy = 0;
         landed = true;
+        if (i >= currentLevel.halfwayIndex && !currentLevel.checkpointReached) {
+          currentLevel.checkpointReached = true;
+          playCheckpoint();
+        }
       }
     });
+    const pad = currentLevel.pad;
+    const withinPadX = player.x + playerW > pad.x && player.x < pad.x + pad.w;
+    const newBottom = player.y + playerH;
+    if (withinPadX && prevBottom <= pad.y + 2 && newBottom >= pad.y && player.vy >= 0) {
+      player.y = pad.y - playerH;
+      player.vy = 0;
+      landed = true;
+    }
     player.onGround = landed;
+    if (landed) lastGroundTime = t;
 
     currentLevel.coins.forEach(c => {
       if (!c.collected) {
         const dx = (player.x + playerW / 2) - c.x;
         const dy = (player.y + playerH / 2) - c.y;
-        if (Math.sqrt(dx * dx + dy * dy) < 22) {
+        if (Math.sqrt(dx * dx + dy * dy) < 30) {
           c.collected = true;
           totalCoins++;
           document.getElementById('hud').textContent = 'Level: ' + level + ' / ' + NUM_LEVELS + '    Coins: ' + totalCoins;
@@ -210,7 +236,7 @@ function update() {
     });
 
     if (player.y > H + 150) {
-      spawnAtLevelStart();
+      respawnPlayer();
     }
 
     if (player.x + playerW > currentLevel.poleX - 14 && player.x < currentLevel.poleX + 14 && player.onGround) {
@@ -401,9 +427,29 @@ function drawDog(progress) {
   ctx.fillRect(x + 6, y + 12, 6, 8);
 }
 
+function drawCheckpointFlag() {
+  const h = currentLevel.hippos[currentLevel.halfwayIndex];
+  const x = h.x + h.w / 2 - camX;
+  const y = h.y;
+  ctx.strokeStyle = '#ccc';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x, y - 40);
+  ctx.stroke();
+  ctx.fillStyle = currentLevel.checkpointReached ? '#2ecc71' : '#888';
+  ctx.beginPath();
+  ctx.moveTo(x, y - 40);
+  ctx.lineTo(x + 16, y - 34);
+  ctx.lineTo(x, y - 28);
+  ctx.closePath();
+  ctx.fill();
+}
+
 function draw() {
   drawStars();
 
+  drawCheckpointFlag();
   currentLevel.hippos.forEach(drawHippo);
   drawPad(currentLevel.pad);
   drawCoins();

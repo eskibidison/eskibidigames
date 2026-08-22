@@ -39,17 +39,41 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W = canvas.width, H = canvas.height;
 
-const gravity = 0.4;
-const flapPower = -7;
-const pipeGap = 130;
+const gravity = 0.28;
+const flapPower = -6;
+const pipeGap = 180;
 const pipeWidth = 60;
-const pipeSpeed = 2.5;
+const pipeSpeed = 1.8;
+const coinR = 10;
 
-let bird, pipes, score, running, started, loopId;
+let bird, pipes, coins, score, running, started, loopId;
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function beep(freq, duration, type, volume) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.value = freq;
+  gain.gain.value = volume || 0.15;
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+function playFlap() { beep(500, 0.08, 'square', 0.1); }
+function playCoin() {
+  beep(880, 0.1, 'sine', 0.15);
+  setTimeout(() => beep(1320, 0.12, 'sine', 0.15), 60);
+}
+function playCrash() { beep(140, 0.4, 'sawtooth', 0.2); }
 
 function reset() {
   bird = { x: 80, y: H / 2, vy: 0, r: 14 };
   pipes = [];
+  coins = [];
   score = 0;
   running = true;
   started = false;
@@ -60,15 +84,18 @@ function reset() {
 function addPipe() {
   const topHeight = 40 + Math.random() * (H - pipeGap - 80);
   pipes.push({ x: W, top: topHeight, passed: false });
+  coins.push({ x: W + pipeWidth / 2, y: topHeight + pipeGap / 2, collected: false });
 }
 
 function flap() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
   if (!running) {
     reset();
     return;
   }
   started = true;
   bird.vy = flapPower;
+  playFlap();
 }
 
 function update() {
@@ -83,6 +110,8 @@ function update() {
 
   pipes.forEach(p => p.x -= pipeSpeed);
   pipes = pipes.filter(p => p.x + pipeWidth > 0);
+  coins.forEach(c => c.x -= pipeSpeed);
+  coins = coins.filter(c => c.x > -20);
 
   pipes.forEach(p => {
     if (!p.passed && p.x + pipeWidth < bird.x) {
@@ -91,6 +120,19 @@ function update() {
       document.getElementById('score').textContent = 'Score: ' + score;
     }
   });
+
+  coins.forEach(c => {
+    if (!c.collected) {
+      const dx = bird.x - c.x, dy = bird.y - c.y;
+      if (Math.sqrt(dx * dx + dy * dy) < bird.r + coinR) {
+        c.collected = true;
+        score += 5;
+        document.getElementById('score').textContent = 'Score: ' + score;
+        playCoin();
+      }
+    }
+  });
+  coins = coins.filter(c => !c.collected);
 
   if (bird.y + bird.r > H || bird.y - bird.r < 0) {
     gameOver();
@@ -107,6 +149,7 @@ function update() {
 }
 
 function gameOver() {
+  if (running) playCrash();
   running = false;
   document.getElementById('msg').textContent = 'Game Over — Score: ' + score + ' — Click or Space to restart';
 }
@@ -123,6 +166,16 @@ function draw() {
     ctx.fillRect(p.x - 3, p.top - 20, pipeWidth + 6, 20);
     ctx.fillRect(p.x - 3, p.top + pipeGap, pipeWidth + 6, 20);
     ctx.fillStyle = '#5cb85c';
+  });
+
+  ctx.fillStyle = '#ffd700';
+  coins.forEach(c => {
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, coinR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#c9a400';
+    ctx.lineWidth = 2;
+    ctx.stroke();
   });
 
   ctx.fillStyle = '#f5d90a';

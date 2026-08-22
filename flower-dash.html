@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Flower Dash</title>
+<style>
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #111;
+    font-family: sans-serif;
+    color: #eee;
+  }
+  h1 { margin: 8px 0; }
+  #hud { margin-bottom: 8px; font-size: 20px; }
+  canvas {
+    border: 2px solid #444;
+    border-radius: 6px;
+  }
+  #msg { margin-top: 10px; font-size: 14px; color: #ccc; text-align: center; }
+</style>
+</head>
+<body>
+<h1>Flower Dash</h1>
+<div id="hud">Time: 60 &nbsp;&nbsp; Score: 0</div>
+<canvas id="game" width="600" height="450"></canvas>
+<div id="msg">WASD/Arrows to walk. Pick as many flowers as you can before time runs out!</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function beep(freq, duration, type, volume) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.value = freq;
+  gain.gain.value = volume || 0.15;
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+  osc.stop(audioCtx.currentTime + duration);
+}
+function playPick(pts) { beep(600 + pts * 6, 0.08, 'sine', 0.13); setTimeout(() => beep(900 + pts * 6, 0.09, 'sine', 0.13), 50); }
+function playTick() { beep(500, 0.05, 'square', 0.1); }
+function playEnd() {
+  [660, 880, 990, 1320].forEach((f, i) => setTimeout(() => beep(f, 0.16, 'sine', 0.15), i * 130));
+}
+
+const TYPES = [
+  { name: 'daisy', pts: 10, weight: 5 },
+  { name: 'poppy', pts: 10, weight: 5 },
+  { name: 'sunflower', pts: 15, weight: 4 },
+  { name: 'tulip', pts: 15, weight: 4 },
+  { name: 'rose', pts: 20, weight: 3 },
+  { name: 'golden', pts: 50, weight: 1 }
+];
+const WEIGHTED = TYPES.flatMap(t => Array(t.weight).fill(t));
+
+function stem(x, y, h, s) {
+  ctx.strokeStyle = '#3d8b3d';
+  ctx.lineWidth = 2.5 * s;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x, y - h * s);
+  ctx.stroke();
+}
+
+function drawDaisy(x, y, s) {
+  stem(x, y + 12 * s, 16, s);
+  ctx.fillStyle = '#fff';
+  for (let i = 0; i < 6; i++) {
+    const ang = (i / 6) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.ellipse(x + Math.cos(ang) * 7 * s, y - 4 * s + Math.sin(ang) * 7 * s, 4.5 * s, 2.5 * s, ang, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#f2d80f';
+  ctx.beginPath();
+  ctx.arc(x, y - 4 * s, 4 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawPoppy(x, y, s) {
+  stem(x, y + 10 * s, 14, s);
+  ctx.fillStyle = '#e05a1f';
+  for (let i = 0; i < 5; i++) {
+    const ang = (i / 5) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.ellipse(x + Math.cos(ang) * 5 * s, y - 6 * s + Math.sin(ang) * 5 * s, 4.5 * s, 3 * s, ang, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#2b1a0a';
+  ctx.beginPath();
+  ctx.arc(x, y - 6 * s, 2.5 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawSunflower(x, y, s) {
+  stem(x, y + 12 * s, 16, s);
+  const cy = y - 4 * s;
+  ctx.fillStyle = '#f2c40f';
+  for (let i = 0; i < 8; i++) {
+    const ang = (i / 8) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.ellipse(x + Math.cos(ang) * 8 * s, cy + Math.sin(ang) * 8 * s, 4 * s, 2.5 * s, ang, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#6b4522';
+  ctx.beginPath();
+  ctx.arc(x, cy, 5 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawTulip(x, y, s, color) {
+  stem(x, y + 10 * s, 14, s);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x - 5 * s, y - 4 * s);
+  ctx.quadraticCurveTo(x - 6 * s, y - 12 * s, x, y - 14 * s);
+  ctx.quadraticCurveTo(x + 6 * s, y - 12 * s, x + 5 * s, y - 4 * s);
+  ctx.quadraticCurveTo(x, y - 7 * s, x - 5 * s, y - 4 * s);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawRose(x, y, s) {
+  stem(x, y + 12 * s, 16, s);
+  ctx.fillStyle = '#3d8b3d';
+  ctx.beginPath();
+  ctx.arc(x, y, 9 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#d63333';
+  for (let i = 0; i < 5; i++) {
+    const ang = (i / 5) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.arc(x + Math.cos(ang) * 5 * s, y + Math.sin(ang) * 5 * s, 3.2 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawGolden(x, y, s, t) {
+  const glow = 0.6 + 0.4 * Math.sin(t * 0.15);
+  ctx.save();
+  ctx.globalAlpha = glow;
+  ctx.fillStyle = '#fff7c0';
+  ctx.beginPath();
+  ctx.arc(x, y - 4 * s, 16 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  stem(x, y + 12 * s, 16, s);
+  ctx.fillStyle = '#ffd700';
+  for (let i = 0; i < 8; i++) {
+    const ang = (i / 8) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.ellipse(x + Math.cos(ang) * 8 * s, y - 4 * s + Math.sin(ang) * 8 * s, 4 * s, 2.5 * s, ang, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#e0812a';
+  ctx.beginPath();
+  ctx.arc(x, y - 4 * s, 4.5 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+const TULIP_COLORS = ['#d63333', '#f2c40f', '#e79fc4', '#fff'];
+
+function drawFlower(f, tGlobal) {
+  const bob = Math.sin(tGlobal * 0.06 + f.seed) * 2;
+  const x = f.x, y = f.y + bob;
+  const s = 1;
+  switch (f.type.name) {
+    case 'daisy': drawDaisy(x, y, s); break;
+    case 'poppy': drawPoppy(x, y, s); break;
+    case 'sunflower': drawSunflower(x, y, s); break;
+    case 'tulip': drawTulip(x, y, s, f.color); break;
+    case 'rose': drawRose(x, y, s); break;
+    case 'golden': drawGolden(x, y, s, tGlobal); break;
+  }
+}
+
+function randomFlower() {
+  const type = WEIGHTED[Math.floor(Math.random() * WEIGHTED.length)];
+  return {
+    type,
+    x: 40 + Math.random() * (W - 80),
+    y: 60 + Math.random() * (H - 100),
+    color: TULIP_COLORS[Math.floor(Math.random() * TULIP_COLORS.length)],
+    seed: Math.random() * 10
+  };
+}
+
+let flowers = [];
+for (let i = 0; i < 7; i++) flowers.push(randomFlower());
+
+let player = { x: W / 2, y: H / 2, size: 15 };
+let keys = {};
+let score = 0, picked = 0, timeLeft = 60, t = 0, state = 'playing';
+let popups = [];
+let lastTickSecond = 60;
+
+document.addEventListener('keydown', e => {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  keys[e.code] = true;
+  if ((e.code === 'Space') && state === 'over') resetGame();
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+function resetGame() {
+  flowers = [];
+  for (let i = 0; i < 7; i++) flowers.push(randomFlower());
+  player.x = W / 2; player.y = H / 2;
+  score = 0; picked = 0; timeLeft = 60; state = 'playing';
+  lastTickSecond = 60;
+  popups = [];
+  document.getElementById('hud').textContent = 'Time: 60    Score: 0';
+  document.getElementById('msg').textContent = 'WASD/Arrows to walk. Pick as many flowers as you can before time runs out!';
+}
+
+let frameAccum = 0;
+function update() {
+  t++;
+
+  if (state !== 'playing') return;
+
+  let vx = 0, vy = 0;
+  if (keys['ArrowLeft'] || keys['KeyA']) vx -= 1;
+  if (keys['ArrowRight'] || keys['KeyD']) vx += 1;
+  if (keys['ArrowUp'] || keys['KeyW']) vy -= 1;
+  if (keys['ArrowDown'] || keys['KeyS']) vy += 1;
+  const len = Math.hypot(vx, vy) || 1;
+  player.x += (vx / len) * 3.2;
+  player.y += (vy / len) * 3.2;
+  player.x = Math.max(player.size, Math.min(W - player.size, player.x));
+  player.y = Math.max(player.size, Math.min(H - player.size, player.y));
+
+  flowers.forEach(f => {
+    const dist = Math.hypot(player.x - f.x, player.y - f.y);
+    if (dist < player.size + 14) {
+      score += f.type.pts;
+      picked++;
+      playPick(f.type.pts);
+      popups.push({ x: f.x, y: f.y - 15, text: '+' + f.type.pts, life: 35, golden: f.type.name === 'golden' });
+      const idx = flowers.indexOf(f);
+      flowers[idx] = randomFlower();
+      document.getElementById('hud').textContent = 'Time: ' + Math.ceil(timeLeft) + '    Score: ' + score;
+    }
+  });
+
+  popups.forEach(p => { p.y -= 0.7; p.life--; });
+  popups = popups.filter(p => p.life > 0);
+
+  timeLeft -= 1 / 60;
+  if (timeLeft <= 0) {
+    timeLeft = 0;
+    state = 'over';
+    playEnd();
+    document.getElementById('msg').textContent = 'Time\'s up! Picked ' + picked + ' flowers, Score: ' + score + ' — Press Space to play again';
+  } else {
+    const secLeft = Math.ceil(timeLeft);
+    if (secLeft <= 10 && secLeft !== lastTickSecond) {
+      lastTickSecond = secLeft;
+      playTick();
+    }
+    document.getElementById('hud').textContent = 'Time: ' + secLeft + '    Score: ' + score;
+  }
+}
+
+function drawPlayer() {
+  ctx.fillStyle = '#3b6bd6';
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ffd9a0';
+  ctx.beginPath();
+  ctx.arc(player.x, player.y - player.size - 4, 8, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function draw() {
+  ctx.fillStyle = '#7fc76b';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(0,0,0,0.04)';
+  for (let i = 0; i < W; i += 20) ctx.fillRect(i, 0, 1, H);
+  for (let j = 0; j < H; j += 20) ctx.fillRect(0, j, W, 1);
+
+  flowers.forEach(f => drawFlower(f, t));
+  drawPlayer();
+
+  popups.forEach(p => {
+    ctx.globalAlpha = p.life / 35;
+    ctx.fillStyle = p.golden ? '#ffd700' : '#fff';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(p.text, p.x, p.y);
+  });
+  ctx.globalAlpha = 1;
+
+  if (state === 'over') {
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 30px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Time\'s Up!', W / 2, H / 2 - 20);
+    ctx.font = '20px sans-serif';
+    ctx.fillText('Score: ' + score + '  (' + picked + ' flowers)', W / 2, H / 2 + 16);
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Cup Run</title>
+<title>Cup Drop</title>
 <style>
   body {
     margin: 0;
@@ -31,23 +31,14 @@
 </style>
 </head>
 <body>
-<h1>Cup Run</h1>
-<div id="hud">Cup: 0 / 50</div>
+<h1>Cup Drop</h1>
+<div id="hud">Falling through the cups...</div>
 <canvas id="game" width="800" height="450"></canvas>
-<div id="msg">Arrows/AD to move, Space/Up to jump. Hop the cups, jump the gaps!</div>
+<div id="msg">Arrows/AD to steer through each hole. Land on the island, then beat the dragon!</div>
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W = canvas.width, H = canvas.height;
-
-const gravity = 0.5;
-const jumpPower = -11;
-const moveSpeed = 3.6;
-const playerW = 20, playerH = 26;
-const groundY = 360;
-const coyoteTime = 120;
-const TOTAL_CUPS = 50;
-const CHECKPOINT_AFTER = [4, 14];
 
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 function beep(freq, duration, type, volume) {
@@ -62,69 +53,43 @@ function beep(freq, duration, type, volume) {
   gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
   osc.stop(audioCtx.currentTime + duration);
 }
-function playJump() { beep(480, 0.07, 'square', 0.08); }
-function playCupPass() { beep(700, 0.06, 'sine', 0.1); }
-function playCheckpoint() { beep(700, 0.09, 'sine', 0.14); setTimeout(() => beep(1050, 0.12, 'sine', 0.14), 80); }
-function playFall() { beep(160, 0.25, 'sawtooth', 0.15); }
+function playThud() { beep(150, 0.06, 'square', 0.08); }
+function playThrough() { beep(750, 0.07, 'sine', 0.11); }
+function playLand() { beep(500, 0.1, 'sine', 0.14); setTimeout(() => beep(700, 0.12, 'sine', 0.14), 90); }
+function playStomp() { beep(320, 0.09, 'square', 0.16); setTimeout(() => beep(200, 0.1, 'square', 0.13), 60); }
+function playFireHit() { beep(220, 0.15, 'sawtooth', 0.15); }
 function playWin() {
-  [660, 880, 990, 1320].forEach((f, i) => setTimeout(() => beep(f, 0.16, 'sine', 0.15), i * 130));
+  [660, 880, 990, 1320, 1500].forEach((f, i) => setTimeout(() => beep(f, 0.16, 'sine', 0.16), i * 120));
 }
 
-function buildCourse() {
-  const groundSegments = [];
-  const lowBlocks = [];
-  const cupMarkers = [];
-  const checkpointMarkers = [];
-  let x = 60, segStart = x;
+const NUM_CUPS = 12;
+const fallSpeed = 2.6;
+const moveSpeed = 4.2;
+const playerR = 13;
 
-  for (let i = 0; i < TOTAL_CUPS; i++) {
-    const lowBlockH = Math.min(24, 10 + i * 0.3);
-    const gapWidth = Math.min(100, 55 + i * 0.9);
-    const cupW = Math.max(55, 92 - i * 0.8);
-
-    lowBlocks.push({ x, y: groundY - lowBlockH, w: 16, h: lowBlockH, idx: i });
-    x += 16 + 46;
-
-    const pitStart = x;
-    groundSegments.push({ x1: segStart, x2: pitStart });
-    x = pitStart + gapWidth;
-    const cupStart = x;
-    cupMarkers.push({ x: cupStart, w: cupW, idx: i });
-    x += cupW;
-    segStart = cupStart;
-
-    x += 44;
-    if (CHECKPOINT_AFTER.includes(i)) {
-      checkpointMarkers.push({ x, cupIndex: i });
-      x += 34;
-    }
+function buildCups() {
+  const cups = [];
+  let wy = 260;
+  for (let i = 0; i < NUM_CUPS; i++) {
+    const gapW = Math.max(150, 230 - i * 7);
+    const center = 130 + ((i * 137) % (W - 260)) ;
+    let gapX1 = Math.max(40, Math.min(W - 40 - gapW, center - gapW / 2));
+    cups.push({ worldY: wy, gapX1, gapX2: gapX1 + gapW, passed: false, idx: i });
+    wy += 210;
   }
-  groundSegments.push({ x1: segStart, x2: x + 80 });
-  const flagX = x + 40;
-  const worldWidth = flagX + 150;
-  return { groundSegments, lowBlocks, cupMarkers, checkpointMarkers, flagX, worldWidth };
+  const islandY = wy + 120;
+  return { cups, islandY };
 }
 
-let course = buildCourse();
-let player, keys, camX = 0, t = 0, lastGroundTime = -9999;
-let cupsCleared = 0, checkpointX = 60, checkpointsHit = [], state = 'playing';
+let course = buildCups();
+let phase = 'falling';
+let player = { x: W / 2, y: 0, worldY: 0 };
+let t = 0;
+let keys = { left: false, right: false, jump: false };
+let particles = [];
 
-function spawnAt(x) {
-  player = { x, y: groundY - playerH, vx: 0, vy: 0, onGround: false, facing: 1 };
-  lastGroundTime = -9999;
-}
+let dragon, fireballs, dragonHits, boss;
 
-function resetGame() {
-  cupsCleared = 0;
-  checkpointX = 60;
-  checkpointsHit = [];
-  state = 'playing';
-  spawnAt(60);
-  document.getElementById('hud').textContent = 'Cup: 0 / ' + TOTAL_CUPS;
-  document.getElementById('msg').textContent = 'Arrows/AD to move, Space/Up to jump. Hop the cups, jump the gaps!';
-}
-
-keys = { left: false, right: false, jump: false };
 document.addEventListener('keydown', e => {
   if (audioCtx.state === 'suspended') audioCtx.resume();
   if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
@@ -132,7 +97,7 @@ document.addEventListener('keydown', e => {
   if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') {
     e.preventDefault();
     keys.jump = true;
-    if (state === 'win') resetGame();
+    if (phase === 'win') resetAll();
   }
 });
 document.addEventListener('keyup', e => {
@@ -141,225 +106,306 @@ document.addEventListener('keyup', e => {
   if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keys.jump = false;
 });
 
-function isOverGround(px) {
-  return course.groundSegments.some(s => px >= s.x1 && px <= s.x2);
+function resetAll() {
+  course = buildCups();
+  phase = 'falling';
+  player = { x: W / 2, y: 0, worldY: 0 };
+  particles = [];
+  document.getElementById('hud').textContent = 'Falling through the cups...';
+  document.getElementById('msg').textContent = 'Arrows/AD to steer through each hole. Land on the island, then beat the dragon!';
+}
+
+function startBoss() {
+  phase = 'boss';
+  boss = {
+    player: { x: 100, y: 0, vx: 0, vy: 0, onGround: false, facing: 1 },
+    groundY: 380,
+    gravity: 0.5,
+    jumpPower: -11.5
+  };
+  boss.player.y = boss.groundY - 28;
+  dragon = { x: 550, baseY: 190, y: 190, dir: 1, hitFlash: 0, invuln: 0 };
+  fireballs = [];
+  dragonHits = 0;
+  document.getElementById('hud').textContent = 'Dragon Health: 10 / 10';
+  document.getElementById('msg').textContent = 'Jump on the dragon\'s head to hit it! Fire just bounces you back.';
+}
+
+function updateFalling() {
+  if (keys.left) player.x -= moveSpeed;
+  if (keys.right) player.x += moveSpeed;
+  player.x = Math.max(playerR, Math.min(W - playerR, player.x));
+
+  const next = course.cups.find(c => !c.passed);
+  let blocked = false;
+  if (next) {
+    const willReach = player.worldY + fallSpeed >= next.worldY;
+    const inGap = player.x > next.gapX1 + playerR * 0.6 && player.x < next.gapX2 - playerR * 0.6;
+    if (willReach && !inGap) {
+      player.worldY = next.worldY;
+      blocked = true;
+    } else if (willReach && inGap) {
+      next.passed = true;
+      playThrough();
+      for (let i = 0; i < 8; i++) {
+        particles.push({ x: player.x, y: 60, vx: (Math.random() - 0.5) * 3, vy: (Math.random() - 0.5) * 3, life: 20 });
+      }
+    }
+  }
+  if (!blocked) {
+    player.worldY += fallSpeed;
+  }
+
+  particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life--; });
+  particles = particles.filter(p => p.life > 0);
+
+  if (player.worldY >= course.islandY) {
+    phase = 'landed';
+    playLand();
+    setTimeout(startBoss, 1000);
+  }
+}
+
+function updateBoss() {
+  const p = boss.player;
+  if (keys.left) { p.vx = -3.8; p.facing = -1; }
+  else if (keys.right) { p.vx = 3.8; p.facing = 1; }
+  else p.vx = 0;
+
+  if (keys.jump && p.onGround) {
+    p.vy = boss.jumpPower;
+    p.onGround = false;
+  }
+
+  const prevBottom = p.y + 28;
+  p.vy += boss.gravity;
+  p.x += p.vx;
+  p.y += p.vy;
+  p.x = Math.max(20, Math.min(W - 40, p.x));
+
+  if (p.y + 28 >= boss.groundY && prevBottom <= boss.groundY + 2 && p.vy >= 0) {
+    p.y = boss.groundY - 28;
+    p.vy = 0;
+    p.onGround = true;
+  }
+
+  dragon.x += dragon.dir * 1.4;
+  if (dragon.x > 680) dragon.dir = -1;
+  if (dragon.x < 300) dragon.dir = 1;
+  dragon.y = dragon.baseY + Math.sin(t * 0.04) * 14;
+  if (dragon.invuln > 0) dragon.invuln--;
+  if (dragon.hitFlash > 0) dragon.hitFlash--;
+
+  const dragonTop = dragon.y - 26;
+  const overlapX = p.x + 22 > dragon.x - 34 && p.x < dragon.x + 34;
+  const overlapY = p.y + 28 > dragonTop && p.y < dragon.y + 10;
+  if (overlapX && overlapY && dragon.invuln === 0) {
+    if (p.vy > 0 && prevBottom <= dragonTop + 14) {
+      dragonHits++;
+      dragon.invuln = 45;
+      dragon.hitFlash = 20;
+      p.vy = -8;
+      playStomp();
+      document.getElementById('hud').textContent = 'Dragon Health: ' + (10 - dragonHits) + ' / 10';
+      if (dragonHits >= 10) {
+        phase = 'win';
+        playWin();
+        document.getElementById('msg').textContent = 'You defeated the dragon! Press Space to play again';
+      }
+    } else {
+      p.vx = p.x < dragon.x ? -5 : 5;
+      p.vy = -5;
+    }
+  }
+
+  if (t % 150 === 0) {
+    const dir = p.x < dragon.x ? -1 : 1;
+    for (let i = 0; i < 3; i++) {
+      fireballs.push({ x: dragon.x, y: dragon.y, vx: dir * (3 + i * 0.4), life: 120 });
+    }
+  }
+  fireballs.forEach(f => { f.x += f.vx; f.life--; });
+  fireballs = fireballs.filter(f => f.life > 0);
+  fireballs.forEach(f => {
+    const dx = (p.x + 11) - f.x, dy = (p.y + 14) - f.y;
+    if (Math.sqrt(dx * dx + dy * dy) < 18 && f.life > 0) {
+      f.life = 0;
+      p.vx = dx > 0 ? 4 : -4;
+      p.vy = -5;
+      playFireHit();
+    }
+  });
+
+  if (p.y > H + 150) {
+    p.y = boss.groundY - 28;
+    p.vy = 0;
+    p.x = 100;
+  }
 }
 
 function update() {
   t++;
-  if (state !== 'playing') return;
-
-  if (keys.left) { player.vx = -moveSpeed; player.facing = -1; }
-  else if (keys.right) { player.vx = moveSpeed; player.facing = 1; }
-  else player.vx = 0;
-
-  const canCoyoteJump = player.onGround || (t - lastGroundTime) * 16.6 < coyoteTime;
-  if (keys.jump && canCoyoteJump) {
-    player.vy = jumpPower;
-    player.onGround = false;
-    playJump();
-  }
-
-  player.x += player.vx;
-  course.lowBlocks.forEach(b => {
-    const overlapX = player.x + playerW > b.x && player.x < b.x + b.w;
-    const bodyBelowTop = player.y + playerH > b.y + 3;
-    if (overlapX && bodyBelowTop) {
-      if (player.x + playerW / 2 < b.x + b.w / 2) player.x = b.x - playerW;
-      else player.x = b.x + b.w;
-    }
-  });
-  player.x = Math.max(0, Math.min(player.x, course.worldWidth - playerW));
-
-  const prevBottom = player.y + playerH;
-  player.vy += gravity;
-  player.y += player.vy;
-
-  let landed = false;
-  const footX = player.x + playerW / 2;
-  if (isOverGround(footX) && player.y + playerH >= groundY && prevBottom <= groundY + 2 && player.vy >= 0) {
-    player.y = groundY - playerH;
-    player.vy = 0;
-    landed = true;
-  }
-  course.lowBlocks.forEach(b => {
-    const withinX = player.x + playerW > b.x && player.x < b.x + b.w;
-    const newBottom = player.y + playerH;
-    if (withinX && prevBottom <= b.y + 2 && newBottom >= b.y && player.vy >= 0) {
-      player.y = b.y - playerH;
-      player.vy = 0;
-      landed = true;
-    }
-  });
-  player.onGround = landed;
-  if (landed) lastGroundTime = t;
-
-  course.lowBlocks.forEach(b => {
-    if (!b.passed && player.x > b.x + b.w) {
-      b.passed = true;
-      cupsCleared = b.idx + 1;
-      document.getElementById('hud').textContent = 'Cup: ' + cupsCleared + ' / ' + TOTAL_CUPS;
-      playCupPass();
-    }
-  });
-
-  course.checkpointMarkers.forEach(cm => {
-    if (!checkpointsHit.includes(cm.cupIndex) && player.x > cm.x) {
-      checkpointsHit.push(cm.cupIndex);
-      checkpointX = cm.x - 20;
-      playCheckpoint();
-    }
-  });
-
-  if (player.y > H + 150) {
-    playFall();
-    spawnAt(checkpointX);
-  }
-
-  if (player.x + playerW > course.flagX) {
-    state = 'win';
-    playWin();
-    document.getElementById('msg').textContent = 'You beat all ' + TOTAL_CUPS + ' cups! Press Space to play again';
-  }
-
-  camX = Math.max(0, Math.min(player.x - 300, course.worldWidth - W));
+  if (phase === 'falling') updateFalling();
+  else if (phase === 'boss') updateBoss();
 }
 
-function drawBackground() {
+function drawFalling() {
   const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, '#6ec6ff');
-  grad.addColorStop(1, '#dff3ff');
+  grad.addColorStop(0, '#bfe9ff');
+  grad.addColorStop(1, '#eaf7ff');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
-  for (let i = 0; i < 6; i++) {
-    const cx = ((i * 240 - camX * 0.3) % (W + 300) + (W + 300)) % (W + 300) - 150;
+
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  for (let i = 0; i < 5; i++) {
+    const cy = ((i * 130 + player.worldY * 0.6) % (H + 200)) - 100;
     ctx.beginPath();
-    ctx.ellipse(cx, 60 + (i % 3) * 30, 28, 14, 0, 0, Math.PI * 2);
-    ctx.ellipse(cx + 20, 55 + (i % 3) * 30, 20, 12, 0, 0, Math.PI * 2);
+    ctx.ellipse(100 + i * 140, cy, 40, 16, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const screenPlayerY = 90;
+  course.cups.forEach(c => {
+    const sy = screenPlayerY + (c.worldY - player.worldY);
+    if (sy < -40 || sy > H + 40) return;
+    ctx.fillStyle = c.passed ? '#88c9f0' : '#d63333';
+    ctx.strokeStyle = '#a02020';
+    ctx.lineWidth = 2;
+    ctx.fillRect(0, sy - 10, c.gapX1, 20);
+    ctx.strokeRect(0, sy - 10, c.gapX1, 20);
+    ctx.fillRect(c.gapX2, sy - 10, W - c.gapX2, 20);
+    ctx.strokeRect(c.gapX2, sy - 10, W - c.gapX2, 20);
+  });
+
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life / 20;
+    ctx.fillStyle = '#ffd700';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
+  ctx.fillStyle = '#2a4fae';
+  ctx.beginPath();
+  ctx.arc(player.x, screenPlayerY, playerR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(player.x - 18, screenPlayerY - 18);
+  ctx.lineTo(player.x - playerR, screenPlayerY - 4);
+  ctx.moveTo(player.x + 18, screenPlayerY - 18);
+  ctx.lineTo(player.x + playerR, screenPlayerY - 4);
+  ctx.stroke();
+}
+
+function drawLanded() {
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#bfe9ff');
+  grad.addColorStop(1, '#eaf7ff');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#5cb85c';
+  ctx.beginPath();
+  ctx.ellipse(W / 2, H / 2 + 60, 140, 60, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#2a4fae';
+  ctx.beginPath();
+  ctx.arc(W / 2, H / 2, playerR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 22px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('You landed on the island!', W / 2, 80);
+}
+
+function drawDragon() {
+  const x = dragon.x, y = dragon.y;
+  ctx.fillStyle = dragon.hitFlash > 0 ? '#fff' : '#6a3fbf';
+  ctx.beginPath();
+  ctx.ellipse(x - 20, y + 6, 22, 12, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(x + 20, y + 6, 22, 12, 0.3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = dragon.hitFlash > 0 ? '#fff' : '#3f6fd6';
+  ctx.beginPath();
+  ctx.ellipse(x, y, 34, 20, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x + 34, y - 8, 15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#2a2a2a';
+  ctx.beginPath();
+  ctx.arc(x + 40, y - 12, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#e0812a';
+  ctx.beginPath();
+  ctx.moveTo(x + 48, y - 6);
+  ctx.lineTo(x + 70, y - 2);
+  ctx.lineTo(x + 48, y + 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#c9a0e0';
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.arc(x - 10 + i * 8, y - 14, 3, 0, Math.PI * 2);
     ctx.fill();
   }
 }
 
-function drawGround() {
-  course.groundSegments.forEach(s => {
-    const x1 = s.x1 - camX, x2 = s.x2 - camX;
-    if (x2 < -20 || x1 > W + 20) return;
-    ctx.fillStyle = '#c98a3c';
-    ctx.fillRect(x1, groundY, x2 - x1, H - groundY);
-    ctx.fillStyle = '#5cb85c';
-    ctx.fillRect(x1, groundY, x2 - x1, 8);
-  });
-}
+function drawBoss() {
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#5ec6ff');
+  grad.addColorStop(1, '#cdeeff');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
 
-function drawCupShape(x, yBase, w, h, rimColor) {
-  ctx.fillStyle = rimColor;
-  ctx.beginPath();
-  ctx.moveTo(x - w / 2, yBase - h);
-  ctx.lineTo(x + w / 2, yBase - h);
-  ctx.lineTo(x + w * 0.32, yBase);
-  ctx.lineTo(x - w * 0.32, yBase);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = '#a02020';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(x - w / 2 + 4, yBase - h + 3);
-  ctx.lineTo(x + w / 2 - 4, yBase - h + 3);
-  ctx.stroke();
-}
+  ctx.fillStyle = '#c98a3c';
+  ctx.fillRect(0, boss.groundY, W, H - boss.groundY);
+  ctx.fillStyle = '#5cb85c';
+  ctx.fillRect(0, boss.groundY, W, 8);
 
-function drawLowBlocks() {
-  course.lowBlocks.forEach(b => {
-    const sx = b.x - camX;
-    if (sx < -40 || sx > W + 40) return;
-    drawCupShape(sx + b.w / 2, groundY, b.w + 8, b.h, '#d63333');
-  });
-}
+  drawDragon();
 
-function drawCupMarkers() {
-  course.cupMarkers.forEach(c => {
-    const sx = c.x - camX;
-    if (sx < -60 || sx > W + 60) return;
-    const hue = c.idx % 3 === 0 ? '#3f6fd6' : c.idx % 3 === 1 ? '#d63333' : '#2ecc71';
-    drawCupShape(sx + c.w / 2, groundY, c.w, Math.max(22, 34 - c.idx * 0.15), hue);
-  });
-}
-
-function drawFlag() {
-  const x = course.flagX - camX;
-  ctx.strokeStyle = '#ccc';
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.moveTo(x, groundY);
-  ctx.lineTo(x, groundY - 240);
-  ctx.stroke();
-  const wave = Math.sin(t * 0.1) * 6;
-  ctx.fillStyle = '#f2c40f';
-  ctx.beginPath();
-  ctx.moveTo(x, groundY - 230);
-  ctx.lineTo(x + 30 + wave, groundY - 218);
-  ctx.lineTo(x, groundY - 206);
-  ctx.closePath();
-  ctx.fill();
-}
-
-function drawCheckpointFlags() {
-  course.checkpointMarkers.forEach(cm => {
-    const sx = cm.x - camX;
-    if (sx < -30 || sx > W + 30) return;
-    ctx.strokeStyle = '#ccc';
-    ctx.lineWidth = 3;
+  fireballs.forEach(f => {
+    ctx.fillStyle = '#ff6a1f';
     ctx.beginPath();
-    ctx.moveTo(sx, groundY);
-    ctx.lineTo(sx, groundY - 44);
-    ctx.stroke();
-    ctx.fillStyle = checkpointsHit.includes(cm.cupIndex) ? '#2ecc71' : '#888';
+    ctx.arc(f.x, f.y, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffd24a';
     ctx.beginPath();
-    ctx.moveTo(sx, groundY - 44);
-    ctx.lineTo(sx + 16, groundY - 38);
-    ctx.lineTo(sx, groundY - 32);
-    ctx.closePath();
+    ctx.arc(f.x, f.y, 4, 0, Math.PI * 2);
     ctx.fill();
   });
-}
 
-function drawPlayer() {
-  const x = player.x - camX, y = player.y;
+  const p = boss.player;
   ctx.save();
-  ctx.translate(x + playerW / 2, y + playerH / 2);
-  ctx.scale(player.facing, 1);
+  ctx.translate(p.x + 11, p.y + 14);
+  ctx.scale(p.facing, 1);
   ctx.fillStyle = '#3fae4a';
-  ctx.fillRect(-playerW / 2, -playerH / 2 + 6, playerW, playerH - 6);
+  ctx.fillRect(-11, -8, 22, 22);
   ctx.fillStyle = '#ffd9a0';
   ctx.beginPath();
-  ctx.arc(0, -playerH / 2 + 2, 9, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#2a7a35';
-  ctx.beginPath();
-  ctx.moveTo(-9, -playerH / 2 - 5);
-  ctx.lineTo(9, -playerH / 2 - 5);
-  ctx.lineTo(0, -playerH / 2 + 6);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = '#222';
-  ctx.beginPath();
-  ctx.arc(4, -playerH / 2, 1.6, 0, Math.PI * 2);
+  ctx.arc(0, -12, 9, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
 
 function draw() {
-  drawBackground();
-  drawGround();
-  drawLowBlocks();
-  drawCupMarkers();
-  drawCheckpointFlags();
-  drawFlag();
-  drawPlayer();
+  if (phase === 'falling') drawFalling();
+  else if (phase === 'landed') drawLanded();
+  else if (phase === 'boss' || phase === 'win') drawBoss();
+
+  if (phase === 'win') {
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('DRAGON DEFEATED!', W / 2, H / 2);
+  }
 }
 
 function loop() {
@@ -368,7 +414,6 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
-resetGame();
 loop();
 </script>
 </body>

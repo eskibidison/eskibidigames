@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Garden Harvest</title>
+<style>
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #111;
+    font-family: sans-serif;
+    color: #eee;
+  }
+  h1 { margin: 8px 0; }
+  #hud { margin-bottom: 8px; font-size: 20px; }
+  canvas {
+    border: 2px solid #444;
+    border-radius: 6px;
+  }
+  #msg { margin-top: 10px; font-size: 14px; color: #ccc; }
+</style>
+</head>
+<body>
+<h1>Garden Harvest</h1>
+<div id="hud">Coins: 0 &nbsp;&nbsp; Harvested: 0</div>
+<canvas id="game" width="600" height="450"></canvas>
+<div id="msg">WASD/Arrows to walk. Walk up to a ready plant to harvest it automatically.</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function beep(freq, duration, type, volume) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.value = freq;
+  gain.gain.value = volume || 0.15;
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+  osc.stop(audioCtx.currentTime + duration);
+}
+function playHarvest() { beep(700, 0.08, 'sine', 0.12); setTimeout(() => beep(1000, 0.1, 'sine', 0.12), 60); }
+
+const PLANTS = {
+  oak:      { label: 'Oak',            coins: 20, regrow: 300, draw: drawOakTree,    r: 30 },
+  cherry:   { label: 'Cherry Blossom', coins: 21, regrow: 320, draw: drawCherryTree,  r: 28 },
+  peach:    { label: 'Peach',          coins: 9,  regrow: 180, draw: drawPeachTree,   r: 26 },
+  spruce:   { label: 'Blue Spruce',    coins: 35, regrow: 340, draw: drawSpruceTree,  r: 26 },
+  blueberry:{ label: 'Blueberry',      coins: 3,  regrow: 90,  draw: drawBlueberry,   r: 20 },
+  rose:     { label: 'Rose',           coins: 12, regrow: 220, draw: drawRoseShrub,   r: 20 },
+  lilac:    { label: 'Lilac',          coins: 6,  regrow: 200, draw: drawLilacShrub,  r: 20 },
+  sunset:   { label: 'Sunset Gold',    coins: 15, regrow: 260, draw: drawSunsetShrub, r: 20 },
+  sunflower:{ label: 'Sunflower',      coins: 5,  regrow: 150, draw: drawSunflower,   r: 16 },
+  tulip:    { label: 'Tulip',          coins: 15, regrow: 200, draw: drawTulip,       r: 14 },
+  poppy:    { label: 'Poppy',          coins: 4,  regrow: 140, draw: drawPoppy,       r: 14 },
+  daisy:    { label: 'Daisy',          coins: 3,  regrow: 120, draw: drawDaisy,       r: 14 }
+};
+
+const layout = [
+  ['oak', 100, 90], ['cherry', 240, 90], ['peach', 380, 90], ['spruce', 520, 90],
+  ['blueberry', 100, 200], ['rose', 240, 200], ['lilac', 380, 200], ['sunset', 520, 200],
+  ['sunflower', 100, 310], ['tulip', 240, 310], ['poppy', 380, 310], ['daisy', 520, 310]
+];
+
+let plots = layout.map(([type, x, y]) => ({
+  type, x, y, growth: 1, timer: 0
+}));
+
+let player = { x: 300, y: 400, size: 16, speedFallback: 2.4 };
+let keys = {};
+let coins = 0, harvested = 0;
+let popups = [];
+
+document.addEventListener('keydown', e => {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  keys[e.code] = true;
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+
+function update() {
+  let vx = 0, vy = 0;
+  if (keys['ArrowLeft'] || keys['KeyA']) vx -= 1;
+  if (keys['ArrowRight'] || keys['KeyD']) vx += 1;
+  if (keys['ArrowUp'] || keys['KeyW']) vy -= 1;
+  if (keys['ArrowDown'] || keys['KeyS']) vy += 1;
+  const len = Math.hypot(vx, vy) || 1;
+  const speed = 2.6;
+  player.x += (vx / len) * speed;
+  player.y += (vy / len) * speed;
+  player.x = Math.max(player.size, Math.min(W - player.size, player.x));
+  player.y = Math.max(player.size, Math.min(H - player.size, player.y));
+
+  plots.forEach(p => {
+    const def = PLANTS[p.type];
+    if (p.growth < 1) {
+      p.timer++;
+      p.growth = Math.min(1, p.timer / def.regrow);
+    } else {
+      const dist = Math.hypot(player.x - p.x, player.y - p.y);
+      if (dist < def.r + player.size - 4) {
+        coins += def.coins;
+        harvested++;
+        p.growth = 0;
+        p.timer = 0;
+        document.getElementById('hud').textContent = 'Coins: ' + coins + '    Harvested: ' + harvested;
+        playHarvest();
+        popups.push({ x: p.x, y: p.y - 20, text: '+' + def.coins, life: 40 });
+      }
+    }
+  });
+
+  popups.forEach(pu => { pu.y -= 0.6; pu.life--; });
+  popups = popups.filter(pu => pu.life > 0);
+}
+
+function drawTrunk(x, y, w, h, color) {
+  ctx.fillStyle = color || '#6b4522';
+  ctx.fillRect(x - w / 2, y, w, h);
+}
+
+function drawOakTree(x, y, g) {
+  const s = 0.4 + g * 0.6;
+  drawTrunk(x, y + 4, 8 * s, 16 * s);
+  ctx.fillStyle = '#4a934a';
+  ctx.beginPath();
+  ctx.arc(x, y - 10 * s, 20 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#5cb85c';
+  ctx.beginPath();
+  ctx.arc(x - 6 * s, y - 16 * s, 12 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawCherryTree(x, y, g) {
+  const s = 0.4 + g * 0.6;
+  drawTrunk(x, y + 4, 7 * s, 16 * s);
+  ctx.fillStyle = '#e79fc4';
+  ctx.beginPath();
+  ctx.arc(x, y - 10 * s, 19 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#f4c2dd';
+  ctx.beginPath();
+  ctx.arc(x + 7 * s, y - 15 * s, 10 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawPeachTree(x, y, g) {
+  const s = 0.4 + g * 0.6;
+  drawTrunk(x, y + 4, 7 * s, 14 * s);
+  ctx.fillStyle = '#4a934a';
+  ctx.beginPath();
+  ctx.arc(x, y - 8 * s, 17 * s, 0, Math.PI * 2);
+  ctx.fill();
+  if (g > 0.5) {
+    ctx.fillStyle = '#f0a35c';
+    for (let i = 0; i < 4; i++) {
+      const ang = (i / 4) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(x + Math.cos(ang) * 10 * s, y - 8 * s + Math.sin(ang) * 10 * s, 3.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function drawSpruceTree(x, y, g) {
+  const s = 0.4 + g * 0.6;
+  drawTrunk(x, y + 6, 6 * s, 10 * s);
+  ctx.fillStyle = '#2f6b5e';
+  for (let i = 0; i < 3; i++) {
+    const w = (22 - i * 6) * s;
+    const yy = y - 4 * s - i * 10 * s;
+    ctx.beginPath();
+    ctx.moveTo(x, yy - 12 * s);
+    ctx.lineTo(x - w / 2, yy);
+    ctx.lineTo(x + w / 2, yy);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+function drawBlueberry(x, y, g) {
+  const s = 0.4 + g * 0.6;
+  ctx.fillStyle = '#2f6b3a';
+  ctx.beginPath();
+  ctx.arc(x, y, 15 * s, 0, Math.PI * 2);
+  ctx.fill();
+  if (g > 0.4) {
+    ctx.fillStyle = '#3a5fc4';
+    for (let i = 0; i < 6; i++) {
+      const ang = (i / 6) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(x + Math.cos(ang) * 9 * s, y + Math.sin(ang) * 9 * s, 2.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function drawRoseShrub(x, y, g) {
+  const s = 0.4 + g * 0.6;
+  ctx.fillStyle = '#3d8b3d';
+  ctx.beginPath();
+  ctx.arc(x, y, 15 * s, 0, Math.PI * 2);
+  ctx.fill();
+  if (g > 0.4) {
+    ctx.fillStyle = '#d63333';
+    for (let i = 0; i < 5; i++) {
+      const ang = (i / 5) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(x + Math.cos(ang) * 8 * s, y + Math.sin(ang) * 8 * s, 3.5 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function drawLilacShrub(x, y, g) {
+  const s = 0.4 + g * 0.6;
+  ctx.fillStyle = '#8e6fc9';
+  ctx.beginPath();
+  ctx.arc(x, y, 15 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#a688dd';
+  ctx.beginPath();
+  ctx.arc(x - 5 * s, y - 5 * s, 9 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawSunsetShrub(x, y, g) {
+  const s = 0.4 + g * 0.6;
+  ctx.fillStyle = '#b8c93a';
+  ctx.beginPath();
+  ctx.arc(x, y, 14 * s, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#d4e05a';
+  ctx.beginPath();
+  ctx.arc(x + 4 * s, y - 4 * s, 8 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function stem(x, y, h, s) {
+  ctx.strokeStyle = '#3d8b3d';
+  ctx.lineWidth = 2 * s;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x, y - h * s);
+  ctx.stroke();
+}
+
+function drawSunflower(x, y, g) {
+  const s = 0.4 + g * 0.6;
+  stem(x, y + 12 * s, 16, s);
+  const cy = y - 4 * s;
+  ctx.fillStyle = '#f2c40f';
+  for (let i = 0; i < 8; i++) {
+    const ang = (i / 8) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.ellipse(x + Math.cos(ang) * 8 * s, cy + Math.sin(ang) * 8 * s, 4 * s, 2.5 * s, ang, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#6b4522';
+  ctx.beginPath();
+  ctx.arc(x, cy, 5 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawTulip(x, y, g) {
+  const s = 0.4 + g * 0.6;
+  stem(x, y + 10 * s, 14, s);
+  ctx.fillStyle = '#d63333';
+  ctx.beginPath();
+  ctx.moveTo(x - 5 * s, y - 4 * s);
+  ctx.quadraticCurveTo(x - 6 * s, y - 12 * s, x, y - 14 * s);
+  ctx.quadraticCurveTo(x + 6 * s, y - 12 * s, x + 5 * s, y - 4 * s);
+  ctx.quadraticCurveTo(x, y - 7 * s, x - 5 * s, y - 4 * s);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawPoppy(x, y, g) {
+  const s = 0.4 + g * 0.6;
+  stem(x, y + 10 * s, 14, s);
+  ctx.fillStyle = '#e05a1f';
+  for (let i = 0; i < 5; i++) {
+    const ang = (i / 5) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.ellipse(x + Math.cos(ang) * 5 * s, y - 6 * s + Math.sin(ang) * 5 * s, 4.5 * s, 3 * s, ang, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.fillStyle = '#2b1a0a';
+  ctx.beginPath();
+  ctx.arc(x, y - 6 * s, 2.5 * s, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawDaisy(x, y, g) {
+  const s = 0.4 + g * 0.6;
+  stem(x, y + 10 * s, 14, s);
+  ctx.fillStyle = '#f2d80f';
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.arc(x - 6 * s + i * 6 * s, y - 6 * s, 3.5 * s, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawPlayer() {
+  ctx.fillStyle = '#3b6bd6';
+  ctx.beginPath();
+  ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#ffd9a0';
+  ctx.beginPath();
+  ctx.arc(player.x, player.y - player.size - 4, 8, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function draw() {
+  ctx.fillStyle = '#7fc76b';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(0,0,0,0.04)';
+  for (let i = 0; i < W; i += 20) ctx.fillRect(i, 0, 1, H);
+  for (let j = 0; j < H; j += 20) ctx.fillRect(0, j, W, 1);
+
+  plots.forEach(p => {
+    ctx.fillStyle = '#8b6a4a';
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y + 14, 26, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    const def = PLANTS[p.type];
+    def.draw(p.x, p.y, Math.max(p.growth, 0.15));
+    if (p.growth >= 1) {
+      ctx.fillStyle = '#fff';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(def.label, p.x, p.y + 34);
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.fillRect(p.x - 18, p.y + 30, 36, 4);
+      ctx.fillStyle = '#4caf50';
+      ctx.fillRect(p.x - 18, p.y + 30, 36 * p.growth, 4);
+    }
+  });
+
+  drawPlayer();
+
+  popups.forEach(pu => {
+    ctx.globalAlpha = pu.life / 40;
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(pu.text, pu.x, pu.y);
+  });
+  ctx.globalAlpha = 1;
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>

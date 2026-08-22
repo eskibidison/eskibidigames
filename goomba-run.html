@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Goomba Run</title>
+<style>
+  body {
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: #111;
+    font-family: sans-serif;
+    color: #eee;
+  }
+  h1 { margin: 8px 0; }
+  #hud { margin-bottom: 8px; font-size: 20px; }
+  canvas {
+    border: 2px solid #444;
+    border-radius: 6px;
+  }
+  #msg {
+    margin-top: 10px;
+    height: 24px;
+    color: #ffe066;
+    font-weight: bold;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<h1>Goomba Run</h1>
+<div id="hud">Lives: 3 &nbsp;&nbsp; Coins: 0 &nbsp;&nbsp; Stomped: 0</div>
+<canvas id="game" width="800" height="450"></canvas>
+<div id="msg">Arrows/AD to move, Space/Up to jump. Stomp goombas from above, avoid them from the side!</div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+const gravity = 0.5;
+const jumpPower = -11.5;
+const moveSpeed = 3.6;
+const playerW = 22, playerH = 28;
+const groundY = 380;
+const coyoteTime = 120;
+const invincibleFrames = 90;
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function beep(freq, duration, type, volume) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type || 'sine';
+  osc.frequency.value = freq;
+  gain.gain.value = volume || 0.15;
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+  osc.stop(audioCtx.currentTime + duration);
+}
+function playJump() { beep(480, 0.07, 'square', 0.08); }
+function playStomp() { beep(300, 0.09, 'square', 0.15); setTimeout(() => beep(180, 0.1, 'square', 0.12), 60); }
+function playHurt() { beep(140, 0.3, 'sawtooth', 0.2); }
+function playCoin() { beep(880, 0.08, 'sine', 0.13); setTimeout(() => beep(1320, 0.1, 'sine', 0.13), 60); }
+function playWin() {
+  [660, 880, 990, 1320].forEach((f, i) => setTimeout(() => beep(f, 0.16, 'sine', 0.15), i * 130));
+}
+function playGameOver() { beep(220, 0.2, 'sawtooth', 0.18); setTimeout(() => beep(140, 0.35, 'sawtooth', 0.18), 180); }
+
+function buildLevel() {
+  const pipes = [
+    { x: 420, y: groundY - 44, w: 44, h: 44 },
+    { x: 900, y: groundY - 56, w: 44, h: 56 },
+    { x: 1420, y: groundY - 44, w: 44, h: 44 },
+    { x: 1950, y: groundY - 60, w: 44, h: 60 }
+  ];
+  const goombas = [
+    { baseX: 260, range: 60, x: 260, y: groundY, dir: 1, alive: true },
+    { baseX: 650, range: 80, x: 650, y: groundY, dir: 1, alive: true },
+    { baseX: 1120, range: 70, x: 1120, y: groundY, dir: -1, alive: true },
+    { baseX: 1160, range: 70, x: 1160, y: groundY, dir: 1, alive: true },
+    { baseX: 1650, range: 90, x: 1650, y: groundY, dir: 1, alive: true },
+    { baseX: 2050, range: 60, x: 2050, y: groundY, dir: -1, alive: true },
+    { baseX: 2300, range: 70, x: 2300, y: groundY, dir: 1, alive: true }
+  ];
+  const coinXs = [150, 340, 520, 560, 780, 1000, 1080, 1300, 1500, 1560, 1780, 1850, 2150, 2400, 2450];
+  const coins = coinXs.map(x => ({ x, y: groundY - 70, collected: false }));
+  const worldWidth = 2650;
+  const flagX = worldWidth - 80;
+  return { pipes, goombas, coins, worldWidth, flagX };
+}
+
+let level, player, keys, camX = 0, t = 0, lastGroundTime = -9999;
+let lives, coins, stomped, state, invincibleTimer;
+
+function spawnPlayer() {
+  player = { x: 60, y: groundY - playerH, vx: 0, vy: 0, onGround: false, facing: 1 };
+}
+
+function resetGame() {
+  level = buildLevel();
+  spawnPlayer();
+  lives = 3;
+  coins = 0;
+  stomped = 0;
+  invincibleTimer = 0;
+  state = 'playing';
+  camX = 0;
+  document.getElementById('hud').textContent = 'Lives: ' + lives + '    Coins: ' + coins + '    Stomped: ' + stomped;
+  document.getElementById('msg').textContent = 'Arrows/AD to move, Space/Up to jump. Stomp goombas from above, avoid them from the side!';
+}
+
+keys = { left: false, right: false, jump: false };
+document.addEventListener('keydown', e => {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+  if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') {
+    e.preventDefault();
+    keys.jump = true;
+    if (state === 'win' || state === 'gameover') resetGame();
+  }
+});
+document.addEventListener('keyup', e => {
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+  if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keys.jump = false;
+});
+
+function updateHUD() {
+  document.getElementById('hud').textContent = 'Lives: ' + lives + '    Coins: ' + coins + '    Stomped: ' + stomped;
+}
+
+function takeDamage(fromX) {
+  if (invincibleTimer > 0) return;
+  lives--;
+  invincibleTimer = invincibleFrames;
+  player.vy = -6;
+  player.vx = player.x < fromX ? -3 : 3;
+  playHurt();
+  updateHUD();
+  if (lives <= 0) {
+    state = 'gameover';
+    playGameOver();
+    document.getElementById('msg').textContent = 'Game Over! Coins: ' + coins + ' — Press Space to restart';
+  }
+}
+
+function update() {
+  t++;
+  if (invincibleTimer > 0) invincibleTimer--;
+
+  level.goombas.forEach(g => {
+    if (!g.alive) return;
+    g.x += g.dir * 1.2;
+    if (g.x > g.baseX + g.range) g.dir = -1;
+    if (g.x < g.baseX - g.range) g.dir = 1;
+  });
+
+  if (state !== 'playing') return;
+
+  if (keys.left) { player.vx = -moveSpeed; player.facing = -1; }
+  else if (keys.right) { player.vx = moveSpeed; player.facing = 1; }
+  else player.vx = 0;
+
+  const canCoyoteJump = player.onGround || (t - lastGroundTime) * 16.6 < coyoteTime;
+  if (keys.jump && canCoyoteJump) {
+    player.vy = jumpPower;
+    player.onGround = false;
+    playJump();
+  }
+
+  player.x += player.vx;
+  level.pipes.forEach(p => {
+    const overlapX = player.x + playerW > p.x && player.x < p.x + p.w;
+    const bodyBelowTop = player.y + playerH > p.y + 4;
+    if (overlapX && bodyBelowTop) {
+      if (player.x + playerW / 2 < p.x + p.w / 2) player.x = p.x - playerW;
+      else player.x = p.x + p.w;
+    }
+  });
+  player.x = Math.max(0, Math.min(player.x, level.worldWidth - playerW));
+
+  const prevBottom = player.y + playerH;
+  player.vy += gravity;
+  player.y += player.vy;
+
+  let landed = false;
+  if (player.y + playerH >= groundY && prevBottom <= groundY + 2 && player.vy >= 0) {
+    player.y = groundY - playerH;
+    player.vy = 0;
+    landed = true;
+  }
+  level.pipes.forEach(p => {
+    const withinX = player.x + playerW > p.x && player.x < p.x + p.w;
+    const newBottom = player.y + playerH;
+    if (withinX && prevBottom <= p.y + 2 && newBottom >= p.y && player.vy >= 0) {
+      player.y = p.y - playerH;
+      player.vy = 0;
+      landed = true;
+    }
+  });
+  player.onGround = landed;
+  if (landed) lastGroundTime = t;
+
+  level.goombas.forEach(g => {
+    if (!g.alive) return;
+    const gw = 26, gh = 22;
+    const overlapX = player.x + playerW > g.x - gw / 2 && player.x < g.x + gw / 2;
+    const overlapY = player.y + playerH > g.y - gh && player.y < g.y;
+    if (overlapX && overlapY) {
+      if (player.vy > 0 && prevBottom <= g.y - gh + 8) {
+        g.alive = false;
+        stomped++;
+        player.vy = -7;
+        playStomp();
+        updateHUD();
+      } else {
+        takeDamage(g.x);
+      }
+    }
+  });
+
+  level.coins.forEach(c => {
+    if (!c.collected) {
+      const dx = (player.x + playerW / 2) - c.x;
+      const dy = (player.y + playerH / 2) - c.y;
+      if (Math.sqrt(dx * dx + dy * dy) < 26) {
+        c.collected = true;
+        coins++;
+        playCoin();
+        updateHUD();
+      }
+    }
+  });
+
+  if (player.y > H + 150) {
+    takeDamage(player.x);
+    if (state === 'playing') {
+      player.x = Math.max(0, player.x - 100);
+      player.y = groundY - playerH;
+      player.vy = 0;
+    }
+  }
+
+  if (player.x + playerW > level.flagX) {
+    state = 'win';
+    playWin();
+    document.getElementById('msg').textContent = 'Level Complete! Coins: ' + coins + '  Stomped: ' + stomped + ' — Press Space to play again';
+  }
+
+  camX = Math.max(0, Math.min(player.x - 300, level.worldWidth - W));
+}
+
+function drawBackground() {
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#5ec8f0');
+  grad.addColorStop(1, '#bfeaff');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  for (let i = 0; i < 6; i++) {
+    const cx = ((i * 240 - camX * 0.3) % (W + 300) + (W + 300)) % (W + 300) - 150;
+    ctx.beginPath();
+    ctx.ellipse(cx, 60 + (i % 3) * 30, 28, 14, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx + 20, 55 + (i % 3) * 30, 20, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function drawGround() {
+  ctx.fillStyle = '#c98a3c';
+  ctx.fillRect(0, groundY, W, H - groundY);
+  ctx.fillStyle = '#5cb85c';
+  ctx.fillRect(0, groundY, W, 10);
+  ctx.fillStyle = '#4a934a';
+  for (let x = -((camX) % 20); x < W; x += 20) {
+    ctx.fillRect(x, groundY, 10, 4);
+  }
+}
+
+function drawPipe(p) {
+  const x = p.x - camX;
+  ctx.fillStyle = '#3d9a3d';
+  ctx.fillRect(x, p.y, p.w, p.h);
+  ctx.fillStyle = '#2e7a2e';
+  ctx.fillRect(x, p.y, 6, p.h);
+  ctx.fillStyle = '#4fc74f';
+  ctx.fillRect(x - 4, p.y, p.w + 8, 14);
+  ctx.fillStyle = '#2e7a2e';
+  ctx.fillRect(x - 4, p.y + 10, p.w + 8, 4);
+}
+
+function drawGoomba(g) {
+  if (!g.alive) return;
+  const x = g.x - camX, y = g.y;
+  const squish = Math.sin(t * 0.15) * 1.5;
+  ctx.fillStyle = '#8b5a2b';
+  ctx.beginPath();
+  ctx.arc(x, y - 14, 13, Math.PI, 0);
+  ctx.fill();
+  ctx.fillStyle = '#6b4522';
+  ctx.beginPath();
+  ctx.ellipse(x, y - 6, 13, 8 + squish * 0.3, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(x - 5, y - 14, 4, 0, Math.PI * 2);
+  ctx.arc(x + 5, y - 14, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.arc(x - 5, y - 14, 1.8, 0, Math.PI * 2);
+  ctx.arc(x + 5, y - 14, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x - 9, y - 20);
+  ctx.lineTo(x - 3, y - 18);
+  ctx.moveTo(x + 9, y - 20);
+  ctx.lineTo(x + 3, y - 18);
+  ctx.stroke();
+  ctx.fillStyle = '#3a2410';
+  ctx.fillRect(x - 10, y - 2, 8, 5);
+  ctx.fillRect(x + 2, y - 2, 8, 5);
+}
+
+function drawCoins() {
+  level.coins.forEach(c => {
+    if (c.collected) return;
+    const bob = Math.sin(t * 0.08 + c.x) * 3;
+    const x = c.x - camX, y = c.y + bob;
+    ctx.fillStyle = '#ffd700';
+    ctx.beginPath();
+    ctx.arc(x, y, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#c9a400';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  });
+}
+
+function drawFlag() {
+  const x = level.flagX - camX;
+  ctx.strokeStyle = '#ccc';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(x, groundY);
+  ctx.lineTo(x, groundY - 260);
+  ctx.stroke();
+  const wave = Math.sin(t * 0.1) * 6;
+  ctx.fillStyle = '#e74c3c';
+  ctx.beginPath();
+  ctx.moveTo(x, groundY - 250);
+  ctx.lineTo(x + 30 + wave, groundY - 238);
+  ctx.lineTo(x, groundY - 226);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawPlayer() {
+  if (invincibleTimer > 0 && Math.floor(t / 4) % 2 === 0) return;
+  const x = player.x - camX, y = player.y;
+  ctx.save();
+  ctx.translate(x + playerW / 2, y + playerH / 2);
+  ctx.scale(player.facing, 1);
+  ctx.fillStyle = '#d63333';
+  ctx.fillRect(-playerW / 2, -playerH / 2 + 6, playerW, playerH - 6);
+  ctx.fillStyle = '#ffd9a0';
+  ctx.beginPath();
+  ctx.arc(0, -playerH / 2 + 2, 9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#a02020';
+  ctx.beginPath();
+  ctx.moveTo(-9, -playerH / 2 - 5);
+  ctx.lineTo(9, -playerH / 2 - 5);
+  ctx.lineTo(0, -playerH / 2 + 6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#2a2a2a';
+  ctx.fillRect(1, -playerH / 2 + 3, 5, 2);
+  ctx.restore();
+}
+
+function draw() {
+  drawBackground();
+  drawGround();
+  level.pipes.forEach(drawPipe);
+  level.goombas.forEach(drawGoomba);
+  drawCoins();
+  drawFlag();
+  drawPlayer();
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+resetGame();
+loop();
+</script>
+</body>
+</html>

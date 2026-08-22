@@ -42,8 +42,8 @@ const ctx = canvas.getContext('2d');
 const W = canvas.width, H = canvas.height;
 const NUM_LEVELS = 5;
 
-const gravity = 0.42;
-const jumpPower = -11.2;
+const gravity = 0.5;
+const jumpPower = -11;
 const moveSpeed = 3.8;
 const playerW = 22, playerH = 26;
 const COUNTDOWN_FRAMES = 180;
@@ -96,7 +96,7 @@ function buildLevel(n) {
   const coins = [];
   for (let i = 0; i < hippos.length - 1; i++) {
     const a = hippos[i], b = hippos[i + 1];
-    coins.push({ x: (a.x + a.w + b.x) / 2, y: Math.max(a.y, b.y) - 28, collected: false, bobSeed: Math.random() * 10 });
+    coins.push({ x: (a.x + a.w + b.x) / 2, y: Math.min(a.y, b.y) - 70, collected: false, bobSeed: Math.random() * 10 });
   }
   const lastY = hippos[hippos.length - 1].y;
   const padX = x + 10;

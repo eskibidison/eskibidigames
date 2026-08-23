@@ -2,124 +2,187 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Snake</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eskibidi Games</title>
 <style>
+  :root {
+    --bg: #12141c;
+    --card: #1e2130;
+    --card-hi: #2a2f45;
+    --ink: #f4f6ff;
+    --dim: #a4abc4;
+  }
+  * { box-sizing: border-box; }
   body {
     margin: 0;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    background: #111;
-    font-family: sans-serif;
-    color: #eee;
+    min-height: 100vh;
+    background: radial-gradient(1200px 600px at 50% -10%, #2a2f4a, var(--bg));
+    color: var(--ink);
+    font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+    padding: 28px 20px 60px;
   }
-  h1 { margin: 8px 0; }
-  #score { margin-bottom: 8px; font-size: 20px; }
-  canvas {
-    background: #000;
-    border: 2px solid #444;
+  header { text-align: center; margin-bottom: 34px; }
+  h1 {
+    font-size: clamp(38px, 9vw, 68px);
+    margin: 0 0 6px;
+    letter-spacing: -1px;
+    background: linear-gradient(90deg, #ffd166, #ff7b6b, #7ee0ff);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
-  #msg {
-    margin-top: 10px;
-    height: 24px;
-    color: #f55;
-    font-weight: bold;
+  header p { margin: 0; color: var(--dim); font-size: 18px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 18px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  a.game {
+    display: block;
+    background: var(--card);
+    border: 2px solid transparent;
+    border-radius: 18px;
+    padding: 20px 18px 18px;
+    text-decoration: none;
+    color: inherit;
+    transition: transform .12s ease, background .12s ease, border-color .12s ease;
+  }
+  a.game:hover, a.game:focus {
+    transform: translateY(-4px);
+    background: var(--card-hi);
+    border-color: var(--accent, #ffd166);
+    outline: none;
+  }
+  .emoji { font-size: 44px; line-height: 1; display: block; margin-bottom: 10px; }
+  .name { font-size: 22px; font-weight: bold; margin-bottom: 4px; }
+  .desc { font-size: 15px; color: var(--dim); line-height: 1.35; }
+  .keys {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--dim);
+    border-top: 1px solid rgba(255,255,255,.08);
+    padding-top: 10px;
+  }
+  kbd {
+    background: rgba(255,255,255,.1);
+    border-radius: 5px;
+    padding: 1px 6px;
+    font-family: inherit;
+  }
+  footer {
+    text-align: center;
+    margin-top: 44px;
+    color: var(--dim);
+    font-size: 14px;
   }
 </style>
 </head>
 <body>
-<h1>Snake</h1>
-<div id="score">Score: 0</div>
-<canvas id="game" width="400" height="400"></canvas>
-<div id="msg"></div>
-<script>
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-const box = 20;
-const cols = canvas.width / box;
-const rows = canvas.height / box;
 
-let snake, dir, food, score, running, loopId;
+<header>
+  <h1>Eskibidi Games</h1>
+  <p>Pick one. They all work in the browser.</p>
+</header>
 
-function rand(max) { return Math.floor(Math.random() * max); }
+<div class="grid">
 
-function placeFood() {
-  let pos;
-  do {
-    pos = { x: rand(cols), y: rand(rows) };
-  } while (snake.some(s => s.x === pos.x && s.y === pos.y));
-  return pos;
-}
+  <a class="game" href="sky-kingdom.html" style="--accent:#7ee0ff">
+    <span class="emoji">🏰</span>
+    <div class="name">Hippo Hop: Sky Kingdom</div>
+    <div class="desc">Fifteen levels, bosses, a shop full of skins and powers, and medals to win.</div>
+    <div class="keys"><kbd>←</kbd> <kbd>→</kbd> move · <kbd>Space</kbd> jump</div>
+  </a>
 
-function reset() {
-  snake = [{ x: 8, y: 10 }, { x: 7, y: 10 }, { x: 6, y: 10 }];
-  dir = { x: 1, y: 0 };
-  score = 0;
-  food = placeFood();
-  running = true;
-  document.getElementById('msg').textContent = '';
-  document.getElementById('score').textContent = 'Score: 0';
-}
+  <a class="game" href="sky-dragon.html" style="--accent:#ff7b6b">
+    <span class="emoji">🐉</span>
+    <div class="name">Cup of the Sky Dragon</div>
+    <div class="desc">Skydive through the holes, then fight the dragon at the bottom.</div>
+    <div class="keys"><kbd>←</kbd> <kbd>→</kbd> steer · <kbd>Space</kbd> attack</div>
+  </a>
 
-function draw() {
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  <a class="game" href="hippo-hop-endless.html" style="--accent:#8ce99a">
+    <span class="emoji">🦛</span>
+    <div class="name">Hippo Hop: Endless River</div>
+    <div class="desc">No finish line. Keep hopping and see how far downriver you get.</div>
+    <div class="keys"><kbd>←</kbd> <kbd>→</kbd> move · <kbd>Space</kbd> jump</div>
+  </a>
 
-  ctx.fillStyle = '#f33';
-  ctx.fillRect(food.x * box, food.y * box, box, box);
+  <a class="game" href="hippo-hop.html" style="--accent:#b197fc">
+    <span class="emoji">🚀</span>
+    <div class="name">Hippo Hop: Space Edition</div>
+    <div class="desc">The original hippo, in space, collecting coins with a checkpoint halfway.</div>
+    <div class="keys"><kbd>←</kbd> <kbd>→</kbd> move · <kbd>Space</kbd> jump</div>
+  </a>
 
-  ctx.fillStyle = '#3f3';
-  snake.forEach((s, i) => {
-    ctx.fillStyle = i === 0 ? '#5f5' : '#3a3';
-    ctx.fillRect(s.x * box, s.y * box, box - 1, box - 1);
-  });
-}
+  <a class="game" href="flower-dash.html" style="--accent:#ffa8c5">
+    <span class="emoji">🌸</span>
+    <div class="name">Flower Dash</div>
+    <div class="desc">Blocky pixel-art run through the flower fields.</div>
+    <div class="keys"><kbd>←</kbd> <kbd>→</kbd> move · <kbd>Space</kbd> jump</div>
+  </a>
 
-function step() {
-  if (!running) return;
+  <a class="game" href="cup-run.html" style="--accent:#ffd166">
+    <span class="emoji">🥤</span>
+    <div class="name">Cup Drop</div>
+    <div class="desc">Fall through gap after gap without clipping the edges.</div>
+    <div class="keys"><kbd>←</kbd> <kbd>→</kbd> steer</div>
+  </a>
 
-  const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+  <a class="game" href="goomba-run.html" style="--accent:#c97a4a">
+    <span class="emoji">🍄</span>
+    <div class="name">Goomba Run</div>
+    <div class="desc">Side-scrolling dash where you are, for once, the goomba.</div>
+    <div class="keys"><kbd>←</kbd> <kbd>→</kbd> move · <kbd>Space</kbd> jump</div>
+  </a>
 
-  if (
-    head.x < 0 || head.x >= cols ||
-    head.y < 0 || head.y >= rows ||
-    snake.some(s => s.x === head.x && s.y === head.y)
-  ) {
-    running = false;
-    document.getElementById('msg').textContent = 'Game Over — press Space to restart';
-    return;
-  }
+  <a class="game" href="obby.html" style="--accent:#74c0fc">
+    <span class="emoji">🧱</span>
+    <div class="name">Obby</div>
+    <div class="desc">Moving platforms, awkward gaps, and a long way down.</div>
+    <div class="keys"><kbd>←</kbd> <kbd>→</kbd> move · <kbd>Space</kbd> jump</div>
+  </a>
 
-  snake.unshift(head);
+  <a class="game" href="garden.html" style="--accent:#8ce99a">
+    <span class="emoji">🌱</span>
+    <div class="name">Garden Harvest</div>
+    <div class="desc">Plant things, wait for them, sell them. Calm one.</div>
+    <div class="keys">Arrow keys or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> to walk</div>
+  </a>
 
-  if (head.x === food.x && head.y === food.y) {
-    score++;
-    document.getElementById('score').textContent = 'Score: ' + score;
-    food = placeFood();
-  } else {
-    snake.pop();
-  }
+  <a class="game" href="breakout.html" style="--accent:#ff8787">
+    <span class="emoji">🧊</span>
+    <div class="name">Breakout</div>
+    <div class="desc">Bounce the ball, clear the bricks, do not lose the ball.</div>
+    <div class="keys"><kbd>←</kbd> <kbd>→</kbd> or mouse</div>
+  </a>
 
-  draw();
-}
+  <a class="game" href="flappy.html" style="--accent:#ffe066">
+    <span class="emoji">🐤</span>
+    <div class="name">Flappy Bird</div>
+    <div class="desc">One button. Still difficult. Sorry.</div>
+    <div class="keys"><kbd>Space</kbd> flap</div>
+  </a>
 
-document.addEventListener('keydown', e => {
-  const key = e.key;
-  if (key === ' ' && !running) {
-    reset();
-    return;
-  }
-  if (key === 'ArrowUp' && dir.y === 0) dir = { x: 0, y: -1 };
-  else if (key === 'ArrowDown' && dir.y === 0) dir = { x: 0, y: 1 };
-  else if (key === 'ArrowLeft' && dir.x === 0) dir = { x: -1, y: 0 };
-  else if (key === 'ArrowRight' && dir.x === 0) dir = { x: 1, y: 0 };
-});
+  <a class="game" href="snake.html" style="--accent:#69db7c">
+    <span class="emoji">🐍</span>
+    <div class="name">Snake</div>
+    <div class="desc">The classic. Eat the red square, avoid yourself.</div>
+    <div class="keys">Arrow keys · <kbd>Space</kbd> restart</div>
+  </a>
 
-reset();
-draw();
-setInterval(step, 120);
-</script>
+  <a class="game" href="fleck.html" style="--accent:#4FB8D8">
+    <span class="emoji">🎣</span>
+    <div class="name">Fleck</div>
+    <div class="desc">HTML prototype of the Fleck remake — skills, gathering, the lot.</div>
+    <div class="keys">Mouse · click things</div>
+  </a>
+
+</div>
+
+<footer>Made for the best playtesters in the business.</footer>
+
 </body>
 </html>

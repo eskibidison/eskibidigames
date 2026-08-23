@@ -66,7 +66,8 @@ is the same town and the harness can make claims about it.
 - Block pitch 1000px, road width 220px. World is roughly 8000×8000px.
 - Each block holds a house (a code-drawn rectangle with a roof), a garden, a
   scatter of trees, and a fence along the pavement.
-- Gnomes sit in gardens. 40 of them, at least one per block.
+- Gnomes sit in gardens, one per block, 64 in total. The shed's block has
+  none, so 63 are stealable.
 - The player's shed is a Kenney tent in the block nearest the world centre.
 - The town is bounded by a hedge. Driving into it stops you; nothing else.
 

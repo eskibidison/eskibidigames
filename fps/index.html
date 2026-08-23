@@ -313,6 +313,21 @@ function buildWorld() {
     scene.add(doorObj);
   }
 
+  for (var wi = 0; wi < S.city.windows.length; wi++) {
+    var pane = S.city.windows[wi];
+    var glass = build('wall-window', fitScale('wall-window', 2.6, 'h'));
+    glass.position.set(pane.x, 0, pane.z);
+    glass.rotation.y = pane.facing + MODEL_YAW;
+    scene.add(glass);
+    pane.view = glass;
+    var shards = build('wall-broken', fitScale('wall-broken', 2.2, 'h'));
+    shards.position.set(pane.x, 0, pane.z);
+    shards.rotation.y = pane.facing + MODEL_YAW;
+    shards.visible = false;
+    scene.add(shards);
+    pane.brokenView = shards;
+  }
+
   for (var l = 0; l < S.city.loot.length; l++) {
     var loot = S.city.loot[l];
     var name = loot.kind === 'atm' ? 'atm' : loot.kind === 'register' ? 'till' : 'vault';
@@ -402,10 +417,28 @@ function buildLabels() {
   for (var st = 0; st < S.city.stores.length; st++) {
     addLabel('ARMOURY', S.city.stores[st].x, 3.6, S.city.stores[st].z, '#8ce99a', 2.2, 120);
   }
+  for (var wi = 0; wi < S.city.windows.length; wi++) {
+    var pane = S.city.windows[wi];
+    var glass = build('wall-window', fitScale('wall-window', 2.6, 'h'));
+    glass.position.set(pane.x, 0, pane.z);
+    glass.rotation.y = pane.facing + MODEL_YAW;
+    scene.add(glass);
+    pane.view = glass;
+    var shards = build('wall-broken', fitScale('wall-broken', 2.2, 'h'));
+    shards.position.set(pane.x, 0, pane.z);
+    shards.rotation.y = pane.facing + MODEL_YAW;
+    shards.visible = false;
+    scene.add(shards);
+    pane.brokenView = shards;
+  }
+
   for (var l = 0; l < S.city.loot.length; l++) {
     var loot = S.city.loot[l];
     var name = loot.kind === 'atm' ? 'CASH MACHINE' : loot.kind === 'register' ? 'TILL' : 'SAFE';
     addLabel(name, loot.x, loot.kind === 'safe' ? 3.0 : 2.3, loot.z, '#7ee0ff', 1.15, 26);
+  }
+  for (var wl = 0; wl < S.city.windows.length; wl++) {
+    addLabel('WINDOW', S.city.windows[wl].x, 3.4, S.city.windows[wl].z, '#9ad8ff', 1.15, 26);
   }
   for (var d = 0; d < S.city.doors.length; d++) {
     var entry = S.city.doors[d];
@@ -545,6 +578,28 @@ function addInstanced(sourceMesh, scale, placements, receive) {
 
 // --- entity views -----------------------------------------------------------
 
+// Cloning a glTF scene shares its materials, so tinting one officer would tint
+// every officer. Each body gets its own copies, and remembers its real colours.
+function ownMaterials(root) {
+  root.traverse(function (o) {
+    if (!o.isMesh || !o.material) return;
+    o.material = o.material.clone();
+    if (o.material.color) o.userData.baseColour = o.material.color.clone();
+  });
+}
+
+// Whitens whoever just took a hit, so you can see the dart land.
+function applyHitFlash(root, hitAt) {
+  var lit = (S.t - (hitAt == null ? -99 : hitAt)) < C.HIT_FLASH;
+  if (root.userData.flashing === lit) return;      // only touch it on a change
+  root.userData.flashing = lit;
+  root.traverse(function (o) {
+    if (!o.isMesh || !o.material || !o.userData.baseColour) return;
+    if (lit) o.material.color.setRGB(1, 1, 1);
+    else o.material.color.copy(o.userData.baseColour);
+  });
+}
+
 function carView(car) {
   var view = carViews.get(car);
   if (!view) {
@@ -561,6 +616,7 @@ function copView(cop) {
   if (!view) {
     var scale = fitScale('cop', 2.35, 'h');
     var group = build('cop', scale);
+    ownMaterials(group);
     scene.add(group);
     var mixer = new THREE.AnimationMixer(group);
     var clips = {};
@@ -590,6 +646,7 @@ function civView(person) {
   var view = civViews.get(person);
   if (!view) {
     var group = build(person.model, fitScale(person.model, 1.85, 'h'));
+    ownMaterials(group);
     scene.add(group);
     var mixer = new THREE.AnimationMixer(group);
     var clips = {};
@@ -608,6 +665,7 @@ function syncCivilians(dt) {
     view.group.position.set(person.x, 0, person.z);
     view.group.rotation.y = person.yaw + MODEL_YAW;
 
+    applyHitFlash(view.group, person.hitAt);
     if (person.state === 'sat') playClip(view, 'sit');
     else if (person.state === 'flee') playClip(view, 'sprint');
     else if (person.state === 'fight') playClip(view, 'holding-both-shoot');
@@ -779,6 +837,7 @@ function syncCops(dt) {
     view.group.rotation.y = facing + MODEL_YAW;
 
     var gap = Math.hypot(pos.x - cop.x, pos.z - cop.z);
+    applyHitFlash(view.group, cop.hitAt);
     if (cop.state === 'sat') playClip(view, 'sit');
     else if (gap > C.COP_STANDOFF) playClip(view, 'walk');
     else playClip(view, 'holding-both-shoot');
@@ -799,6 +858,18 @@ function syncDarts() {
     mesh.lookAt(d.x + d.vx, d.y + d.vy, d.z + d.vz);
   }
   for (var j = S.darts.length; j < dartPool.length; j++) dartPool[j].visible = false;
+}
+
+// Swap the glass for the broken piece once it has been shot out.
+function syncWindows() {
+  for (var i = 0; i < S.city.windows.length; i++) {
+    var pane = S.city.windows[i];
+    if (!pane.view) continue;
+    if (pane.broken === pane.view.userData.wasBroken) continue;
+    pane.view.userData.wasBroken = pane.broken;
+    pane.view.visible = !pane.broken;
+    if (pane.brokenView) pane.brokenView.visible = pane.broken;
+  }
 }
 
 function syncGuns(dt) {
@@ -1088,6 +1159,7 @@ function frame() {
   syncCivilians(dt);
   syncDarts();
   syncGuns(dt);
+  syncWindows();
   syncCamera(dt);
   syncLabels();
   syncHud();

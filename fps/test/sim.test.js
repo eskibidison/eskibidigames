@@ -311,17 +311,29 @@ section('running them over');
   assert.equal(s.stats.copsRunOver, 1, 'the game counted it');
   ok(`ran an officer over: wanted went ${wantedBefore} -> ${s.wanted}`);
 
-  // More stars must mean more police cars, one per star.
+  // More stars means more police cars — but only once you are in a vehicle.
+  // On foot they deliberately hold back; that is covered further down.
   for (const stars of [1, 3, 5]) {
     const t = SIM.createGame();
-    t.raiseWanted(stars);
-    run(t, 60 * 60);
-    const cars = t.state.cars.filter(c => c.kind === 'police').length;
+    const ride = t.state.cars.filter(c => c.parked)[0];
+    t.state.player.driving = true;
+    t.state.player.car = ride;
+    ride.ai = false;
+    // Keep the heat topped up and take the peak: the wanted level decays, and
+    // once it hits zero the cars are sent home, so the final count says little.
+    let cars = 0;
+    for (let i = 0; i < 60 * 60; i++) {
+      // Set the level rather than raise it: raiseWanted adds, so topping up
+      // repeatedly would climb to five stars whatever we asked for.
+      if (i % (60 * 10) === 0) { t.state.wanted = stars; t.state.wantedDecay = SIM.C.WANTED_DECAY; }
+      t.update(STEP, noInput());
+      cars = Math.max(cars, t.state.cars.filter(c => c.kind === 'police').length);
+    }
     assert.ok(cars > 0, `${stars} stars brings at least one police car`);
     assert.ok(cars <= stars, `${stars} stars brings at most ${stars} police cars (got ${cars})`);
     if (stars === 5) assert.ok(cars >= 3, `five stars brings a proper convoy (got ${cars})`);
   }
-  ok('police cars scale with the wanted level, one per star up to five');
+  ok('police cars scale with the wanted level while driving, one per star');
 }
 
 // --- 5d. the armoury --------------------------------------------------------
@@ -728,6 +740,135 @@ section('doors open for you');
   assert.ok(g2.melee(), 'the punch landed on the door');
   assert.equal(g2.state.player.indoors, 'hideout', 'and put you inside');
   ok('you can punch a door through as well');
+}
+
+// --- 5n. the police are less overwhelming on foot ---------------------------
+
+section('police restraint on foot');
+{
+  // Peaks with the heat held at five stars, so neither side is measured after
+  // the wanted level has quietly decayed away.
+  const peakCars = inCar => {
+    const g = SIM.createGame();
+    if (inCar) {
+      const ride = g.state.cars.filter(c => c.parked)[0];
+      g.state.player.driving = true;
+      g.state.player.car = ride;
+      ride.ai = false;
+    }
+    let peak = 0;
+    for (let i = 0; i < 60 * 60; i++) {
+      if (i % (60 * 10) === 0) { g.state.wanted = 5; g.state.wantedDecay = SIM.C.WANTED_DECAY; }
+      g.update(STEP, Object.assign(noInput(), inCar ? { forward: true } : {}));
+      peak = Math.max(peak, g.state.cars.filter(c => c.kind === 'police').length);
+    }
+    return peak;
+  };
+  const footCars = peakCars(false);
+  const drivingCars = peakCars(true);
+
+  assert.ok(footCars < drivingCars,
+    `fewer cars come after you on foot (${footCars} on foot, ${drivingCars} in a car)`);
+  assert.ok(footCars <= 2, `and never a swarm of them (${footCars})`);
+  ok(`police send ${footCars} car(s) when you are on foot, ${drivingCars} when you are driving`);
+}
+
+// --- 5o. officers without blasters ------------------------------------------
+
+section('unarmed officers');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  const cop = g.spawnCop(s.player.x, s.player.z - 14);
+  cop.armed = false;
+
+  // From across the street an unarmed officer cannot do anything to you.
+  let policeDarts = 0;
+  for (let i = 0; i < 60 * 20; i++) {
+    g.update(STEP, noInput());
+    policeDarts += s.darts.filter(d => d.owner === 'police').length;
+    if (policeDarts) break;
+  }
+  assert.equal(policeDarts, 0, 'an officer with no blaster never fires one');
+  ok('unarmed officers do not shoot');
+
+  // An armed one, in the same spot, does.
+  const g2 = SIM.createGame();
+  const armed = g2.spawnCop(g2.state.player.x, g2.state.player.z - 14);
+  armed.armed = true;
+  let fired = false;
+  for (let i = 0; i < 60 * 20 && !fired; i++) {
+    g2.update(STEP, noInput());
+    fired = g2.state.darts.some(d => d.owner === 'police');
+  }
+  assert.ok(fired, 'an armed officer does fire');
+  ok('armed officers still shoot, so the difference is real');
+
+  // Downed unarmed officers leave nothing behind to pick up.
+  const before = s.city.guns.filter(x => !x.taken).length;
+  for (let i = 0; i < 20 && cop.state !== 'sat'; i++) g.hurtCop(cop, 20);
+  assert.equal(cop.state, 'sat', 'the unarmed officer went down');
+  assert.equal(s.city.guns.filter(x => !x.taken).length, before,
+    'and left no blaster, because they never had one');
+  ok('an unarmed officer drops nothing when they go down');
+}
+
+// --- 5p. hit feedback -------------------------------------------------------
+
+section('showing hits');
+{
+  const g = SIM.createGame();
+  const cop = g.spawnCop(g.state.player.x, g.state.player.z - 6);
+  assert.ok(cop.hitAt < 0, 'nobody has been hit yet');
+  g.hurtCop(cop, 10);
+  assert.ok(cop.hitAt >= 0, 'taking a hit is timestamped for the renderer to flash');
+  ok('officers record when they were hit so they can flash');
+
+  const person = g.spawnCivilian();
+  g.hurtCivilian(person, 5, 'player');
+  assert.ok(person.hitAt >= 0, 'bystanders too');
+  ok('bystanders record hits the same way');
+}
+
+// --- 5q. shooting windows out -----------------------------------------------
+
+section('windows');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  assert.ok(s.city.windows.length > 0, `there are windows (${s.city.windows.length})`);
+
+  const pane = s.city.windows[0];
+  const doorsBefore = s.city.doors.length;
+  g.giveWeapon('heavy', 99);
+
+  // Stand off and shoot it out.
+  s.player.x = pane.x;
+  s.player.z = pane.z + 6;
+  s.player.pitch = 0;
+  faceTowards(g, pane.x, pane.z);
+  for (let i = 0; i < 60 * 12 && !pane.broken; i++) {
+    g.update(STEP, Object.assign(noInput(), { fire: true }));
+  }
+  assert.ok(pane.broken, 'the window broke');
+  ok('shot a window out');
+
+  assert.equal(s.city.doors.length, doorsBefore + 1, 'and it became a way in');
+  faceTowards(g, pane.x, pane.z);
+  run(g, 60, { forward: true });
+  assert.equal(s.player.indoors, 'hideout', 'you can climb through the broken window');
+  ok('a broken window works as a way inside');
+}
+
+// --- 5r. a street full of different people ----------------------------------
+
+section('a varied street');
+{
+  const g = SIM.createGame();
+  run(g, 60 * 30);
+  const seen = new Set(g.state.civilians.map(c => c.model));
+  assert.ok(seen.size >= 4, `the public are not all the same person (${seen.size} kinds)`);
+  ok(`saw ${seen.size} different people on the street: ${[...seen].sort().join(', ')}`);
 }
 
 // --- 6. health --------------------------------------------------------------

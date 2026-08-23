@@ -53,8 +53,15 @@ const WANTED = {
 
   // people — rigged, with Kenney's own animation set
   'cop': ['blocky-characters', 'character-j'],
+  // A spread of the pack's people, so the street is not eight of the same man.
   'civ-a': ['blocky-characters', 'character-c'],
   'civ-b': ['blocky-characters', 'character-e'],
+  'civ-c': ['blocky-characters', 'character-b'],
+  'civ-d': ['blocky-characters', 'character-i'],
+  'civ-e': ['blocky-characters', 'character-k'],
+  'civ-f': ['blocky-characters', 'character-n'],
+  'civ-g': ['blocky-characters', 'character-p'],
+  'civ-h': ['blocky-characters', 'character-q'],
 
   // things you carry and things you rob
   'blaster': ['blaster-kit', 'blaster-a'],
@@ -69,6 +76,8 @@ const WANTED = {
   'wall': ['retro-urban-kit', 'wall-a-flat'],
   'wall-door': ['retro-urban-kit', 'wall-a-door'],
   'wall-corner': ['retro-urban-kit', 'wall-a-corner'],
+  'wall-window': ['retro-urban-kit', 'wall-a-flat-window'],
+  'wall-broken': ['retro-urban-kit', 'wall-broken-type-a'],
   'floor': ['furniture-kit', 'floorFull'],
   'atm': ['furniture-kit', 'kitchenFridge'],
   'till': ['furniture-kit', 'desk'],

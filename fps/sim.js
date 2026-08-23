@@ -56,6 +56,8 @@
   var BUILDING_MODELS = ['building-a', 'building-c', 'building-e', 'building-h',
     'building-k', 'building-n', 'tower-a', 'tower-c'];
   var CAR_MODELS = ['car-sedan', 'car-taxi', 'car-van', 'car-suv', 'car-sports'];
+  // Eight different people, so the street is not one man repeated.
+  var CIVILIAN_MODELS = ['civ-a', 'civ-b', 'civ-c', 'civ-d', 'civ-e', 'civ-f', 'civ-g', 'civ-h'];
 
   // Uniform scale that makes a model's footprint fill a lot of the given size.
   function fitScale(name, target) {
@@ -87,7 +89,15 @@
     REGEN_RATE: 5,
 
     COP_HEALTH: 100,
-    COP_HIT_R: 1.1,           // officers stand 2.35m; give darts a fair target
+    COP_HIT_R: 1.1,
+    COP_ARMED_SHARE: 0.7,     // the rest turn up without a blaster
+    COP_GRAB_RANGE: 2.2,
+    COP_GRAB_DAMAGE: 3,
+    COP_GRAB_DELAY: 1.4,
+    FOOT_POLICE_CARS: 1,      // cars sent while you are on foot
+    FOOT_CAR_STANDOFF: 26,    // and how far back they hold
+    WINDOW_HEALTH: 20,
+    HIT_FLASH: 0.18,           // officers stand 2.35m; give darts a fair target
     COP_SPEED: 4.6,
     COP_RANGE: 22,
     COP_STANDOFF: 9,
@@ -190,6 +200,7 @@
     var buildings = [];      // placed Kenney models, with the scale to draw them at
     var loot = [];
     var doors = [];          // ways into interiors, not things you rob
+    var windows = [];        // shoot them out for another way in
     var guns = [];
     var props = [];          // pure decoration: lamps, trees, bins
     var blockInfo = [];
@@ -271,6 +282,11 @@
         if (rnd() < 0.4) guns.push({ x: cx + 4 + rnd() * 6, z: z0 - 3, taken: false });
         if ((i * 3 + j) % 4 === 0) {
           doors.push({ kind: 'hideout', x: cx - 6, z: z0 - 1.5, facing: Math.PI });
+          // A window beside the door: shoot it out and climb in that way.
+          windows.push({
+            x: cx + 2, z: z0 - 1.5, facing: Math.PI,
+            health: C.WINDOW_HEALTH, broken: false,
+          });
         }
         if (rnd() < 0.5) {
           props.push({
@@ -367,7 +383,7 @@
     return {
       boxes: boxes, buildings: buildings, loot: loot,
       guns: guns, props: props, blocks: blockInfo,
-      doors: doors, interior: interior, hideout: hideout, stores: stores
+      doors: doors, windows: windows, interior: interior, hideout: hideout, stores: stores
     };
   }
 
@@ -690,7 +706,9 @@
       car.angle += clamp(diff, -C.CAR_TURN * dt * 2, C.CAR_TURN * dt * 2);
 
       var gap = dist(pos.x, pos.z, car.x, car.z);
-      var target = gap > 16 ? 22 : 8;
+      // On foot they hang back rather than driving onto the pavement at you.
+      var standoff = state.player.driving ? 0 : C.FOOT_CAR_STANDOFF;
+      var target = gap < standoff ? 0 : (gap > 16 ? 22 : 8);
       car.speed += (target - car.speed) * Math.min(1, dt * 1.2);
       car.siren += dt;
 
@@ -700,7 +718,7 @@
       else { car.speed *= -0.2; car.angle += 0.6 * dt * 4; }
 
       // Close enough: the officers get out and continue on foot.
-      if (gap < 18 && !car.emptied) {
+      if (gap < (state.player.driving ? 18 : C.FOOT_CAR_STANDOFF + 4) && !car.emptied) {
         car.emptied = true;
         spawnCop(car.x + 2.2, car.z + 2.2);
         if (state.wanted >= 3) spawnCop(car.x - 2.2, car.z - 2.2);
@@ -720,7 +738,11 @@
       if (standingCops() >= C.MAX_COPS) return null;
       var cop = {
         x: x, z: z, health: C.COP_HEALTH, cooldown: 0.8 + rnd() * 0.8,
-        state: 'chase', sat: 0, bob: rnd() * 6
+        state: 'chase', sat: 0, bob: rnd() * 6,
+        // Some turn up without a blaster. They still chase you, but all they
+        // can do is grab at you when they get close.
+        armed: rnd() < C.COP_ARMED_SHARE,
+        hitAt: -99,
       };
       state.cops.push(cop);
       return cop;
@@ -729,8 +751,13 @@
     function spawnPoliceCar() {
       var count = 0;
       for (var i = 0; i < state.cars.length; i++) if (state.cars[i].kind === 'police') count++;
-      // One car per star: a single unit at one star, a full five at five.
-      if (count >= Math.min(C.MAX_POLICE_CARS, state.wanted)) return;
+      // One car per star when you are driving. On foot they are far more
+      // intimidating than they need to be, so only one comes unless the whole
+      // force is out.
+      var allowed = state.player.driving
+        ? Math.min(C.MAX_POLICE_CARS, state.wanted)
+        : (state.wanted >= 4 ? 2 : C.FOOT_POLICE_CARS);
+      if (count >= allowed) return;
 
       var pos = playerPos();
       // Arrive along a road, from off in the distance.
@@ -814,10 +841,17 @@
         }
 
         cop.cooldown -= dt;
-        if (gap < C.COP_RANGE && cop.cooldown <= 0 && !p.soaked && !p.indoors && !state.store.open) {
-          cop.cooldown = C.COP_FIRE_DELAY;
-          fireDart(cop.x, 1.4, cop.z, pos.x, p.driving ? 1.0 : 1.3, pos.z,
-            C.COP_DART_SPEED, 'police', C.COP_DART_DAMAGE, 0.16);
+        var canAct = !p.soaked && !p.indoors && !state.store.open;
+        if (cop.armed) {
+          if (gap < C.COP_RANGE && cop.cooldown <= 0 && canAct) {
+            cop.cooldown = C.COP_FIRE_DELAY;
+            fireDart(cop.x, 1.4, cop.z, pos.x, p.driving ? 1.0 : 1.3, pos.z,
+              C.COP_DART_SPEED, 'police', C.COP_DART_DAMAGE, 0.16);
+          }
+        } else if (gap < C.COP_GRAB_RANGE && cop.cooldown <= 0 && canAct) {
+          // Empty handed: all they can do is make a grab for you.
+          cop.cooldown = C.COP_GRAB_DELAY;
+          hurtPlayer(C.COP_GRAB_DAMAGE);
         }
       }
     }
@@ -838,7 +872,8 @@
         var person = {
           x: x, z: z, yaw: rnd() * 6.28, health: C.CIV_HEALTH,
           state: 'wander', isCivilian: true, brave: rnd() < C.CIV_BRAVE,
-          model: rnd() < 0.5 ? 'civ-a' : 'civ-b',
+          model: CIVILIAN_MODELS[Math.floor(rnd() * CIVILIAN_MODELS.length)],
+          hitAt: -99,
           cooldown: rnd() * 2, bob: rnd() * 6, target: null, repath: 0,
         };
         state.civilians.push(person);
@@ -850,6 +885,7 @@
     function hurtCivilian(person, amount, source) {
       if (person.state === 'sat') return;
       person.health -= amount;
+      person.hitAt = state.t;
       if (source === 'player' && state.wanted < 2) raiseWanted(1);
       if (person.health <= 0) {
         person.state = 'sat';
@@ -988,6 +1024,25 @@
             }
           }
         }
+        if (!gone) {
+          for (var wI = 0; wI < city.windows.length; wI++) {
+            var pane = city.windows[wI];
+            if (pane.broken) continue;
+            if (segmentDistance(fromX, fromZ, d.x, d.z, pane.x, pane.z) > 1.3) continue;
+            if (highY < 0.8 || lowY > 3.2) continue;
+            pane.health -= d.damage;
+            pane.hitAt = state.t;
+            if (pane.health <= 0) {
+              pane.broken = true;
+              city.doors.push({ kind: 'hideout', x: pane.x, z: pane.z, facing: pane.facing, fromWindow: true });
+              say('window smashed — you can climb in there now', 2.6);
+              if (state.wanted < 1) raiseWanted(1);
+            }
+            gone = true;
+            break;
+          }
+        }
+
         // Anyone can catch a stray. Police darts included.
         if (!gone && d.owner !== 'civilian') {
           for (var v = 0; v < state.civilians.length; v++) {
@@ -1023,12 +1078,13 @@
     function hurtCop(cop, amount) {
       if (cop.state === 'sat') return;
       cop.health -= amount;
+      cop.hitAt = state.t;              // the renderer flashes them white
       if (cop.health <= 0) {
         cop.state = 'sat';
         state.stats.copsDropped++;
         say('officer is out of the fight', 2);
-        // A dropped officer leaves their nerf blaster behind.
-        city.guns.push({ x: cop.x, z: cop.z, taken: false });
+        // Only the ones who had a blaster leave one behind.
+        if (cop.armed) city.guns.push({ x: cop.x, z: cop.z, taken: false });
       }
     }
 

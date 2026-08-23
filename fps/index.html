@@ -131,7 +131,8 @@
     <span>turn and steer</span><span><kbd>←</kbd> <kbd>→</kbd> or the mouse</span>
     <span>step sideways</span><span><kbd>A</kbd> <kbd>D</kbd></span>
     <span>sprint</span><span><kbd>Shift</kbd></span>
-    <span>fire</span><span><kbd>S</kbd> or left click</span>
+    <span>fire / punch</span><span><kbd>S</kbd> or left click</span>
+    <span>jump</span><span><kbd>Space</kbd></span>
     <span>swap blaster</span><span><kbd>Q</kbd></span>
     <span>use a med kit</span><span><kbd>H</kbd></span>
     <span>everything else</span><span><kbd>E</kbd></span>
@@ -302,10 +303,11 @@ function buildWorld() {
   buildLabels();
 
   for (var d = 0; d < S.city.doors.length; d++) {
-    var bankDoor = S.city.doors[d];
-    var doorObj = build('vault', fitScale('vault', 4.4, 'h'));
-    doorObj.position.set(bankDoor.x, 0, bankDoor.z);
-    doorObj.rotation.y = bankDoor.facing + MODEL_YAW;
+    var entry = S.city.doors[d];
+    var isBank = entry.kind === 'bank';
+    var doorObj = build(isBank ? 'vault' : 'wall-door', fitScale(isBank ? 'vault' : 'wall-door', isBank ? 4.4 : 3.2, 'h'));
+    doorObj.position.set(entry.x, 0, entry.z);
+    doorObj.rotation.y = entry.facing + MODEL_YAW;
     scene.add(doorObj);
   }
 
@@ -404,7 +406,10 @@ function buildLabels() {
     addLabel(name, loot.x, loot.kind === 'safe' ? 3.0 : 2.3, loot.z, '#7ee0ff', 1.15, 26);
   }
   for (var d = 0; d < S.city.doors.length; d++) {
-    addLabel('WAY IN', S.city.doors[d].x, 4.6, S.city.doors[d].z, '#ffd166', 1.5, 45);
+    var entry = S.city.doors[d];
+    addLabel(entry.kind === 'bank' ? 'BANK — WAY IN' : 'DOOR — HIDE HERE',
+      entry.x, entry.kind === 'bank' ? 4.6 : 3.6, entry.z,
+      entry.kind === 'bank' ? '#ffd166' : '#c9d0e6', 1.4, 40);
   }
 }
 
@@ -422,7 +427,11 @@ function syncLabels() {
 // The bank interior is a real room off to the west of town, built out of the
 // same Kenney wall and floor pieces as everything else.
 function buildInterior() {
-  var room = S.city.interior.room;
+  buildRoom(S.city.interior.room, S.city.interior.walls);
+  buildRoom(S.city.hideout.room, S.city.hideout.walls);
+}
+
+function buildRoom(room, walls) {
   var floorScale = fitScale('floor', 4, 'w');
   for (var fz = room.z0; fz < room.z0 + room.d; fz += 4) {
     for (var fx = room.x0; fx < room.x0 + room.w; fx += 4) {
@@ -434,8 +443,8 @@ function buildInterior() {
 
   var wallScale = fitScale('wall', room.wall, 'h');
   var seg = META['wall'].w * wallScale;
-  for (var i = 0; i < S.city.interior.walls.length; i++) {
-    var box = S.city.interior.walls[i];
+  for (var i = 0; i < walls.length; i++) {
+    var box = walls[i];
     var lengthX = box.x1 - box.x0, lengthZ = box.z1 - box.z0;
     var alongX = lengthX >= lengthZ;
     var span = alongX ? lengthX : lengthZ;
@@ -571,6 +580,44 @@ function playClip(view, name) {
   view.current = name;
 }
 
+// Bystanders use the same rigged characters as the police, with Kenney's own
+// walk, run, idle and sit clips picked to match what they are doing.
+var civViews = new Map();
+
+function civView(person) {
+  var view = civViews.get(person);
+  if (!view) {
+    var group = build(person.model, fitScale(person.model, 1.85, 'h'));
+    scene.add(group);
+    var mixer = new THREE.AnimationMixer(group);
+    var clips = {};
+    templates[person.model].animations.forEach(function (clip) { clips[clip.name] = clip; });
+    view = { group: group, mixer: mixer, clips: clips, current: null };
+    civViews.set(person, view);
+    playClip(view, 'idle');
+  }
+  return view;
+}
+
+function syncCivilians(dt) {
+  for (var i = 0; i < S.civilians.length; i++) {
+    var person = S.civilians[i];
+    var view = civView(person);
+    view.group.position.set(person.x, 0, person.z);
+    view.group.rotation.y = person.yaw + MODEL_YAW;
+
+    if (person.state === 'sat') playClip(view, 'sit');
+    else if (person.state === 'flee') playClip(view, 'sprint');
+    else if (person.state === 'fight') playClip(view, 'holding-both-shoot');
+    else playClip(view, 'walk');
+
+    view.mixer.update(dt);
+  }
+  civViews.forEach(function (view, person) {
+    if (S.civilians.indexOf(person) === -1) { scene.remove(view.group); civViews.delete(person); }
+  });
+}
+
 function dartView(i) {
   if (!dartPool[i]) {
     // Kenney's own foam dart, rather than a cylinder pretending to be one.
@@ -634,7 +681,8 @@ function init() {
 // --- input -------------------------------------------------------------------
 
 var input = { forward: false, back: false, left: false, right: false,
-  turnLeft: false, turnRight: false, sprint: false, fire: false, interact: false };
+  turnLeft: false, turnRight: false, sprint: false, fire: false, interact: false,
+  jump: false };
 var started = false;
 
 function bindInput() {
@@ -673,6 +721,7 @@ function bindInput() {
     else if (k === 'd') input.right = true;
     else if (k === 'arrowleft') input.turnLeft = true;
     else if (k === 'arrowright') input.turnRight = true;
+    else if (k === ' ') input.jump = true;
     else if (k === 'q') game.switchWeapon(1);
     else if (k === 'h') game.useMedkit();
     else if (S.store.open && k >= '1' && k <= '9') game.buy(Number(k) - 1);
@@ -694,6 +743,7 @@ function bindInput() {
     else if (k === 'd') input.right = false;
     else if (k === 'arrowleft') input.turnLeft = false;
     else if (k === 'arrowright') input.turnRight = false;
+    else if (k === ' ') input.jump = false;
     else if (k === 'shift') input.sprint = false;
     else if (k === 'e') input.interact = false;
   });
@@ -783,7 +833,7 @@ function syncCamera(dt) {
   } else {
     var bob = (input.forward || input.back || input.left || input.right ||
       input.turnLeft || input.turnRight) ? Math.sin(p.bob * 2.1) * 0.045 : 0;
-    camera.position.set(pos.x, C.EYE + bob, pos.z);
+    camera.position.set(pos.x, C.EYE + p.y + bob, pos.z);
     camera.rotation.set(0, 0, 0, 'YXZ');
     camera.rotation.order = 'YXZ';
     camera.rotation.y = p.yaw;
@@ -892,7 +942,7 @@ function syncHud() {
   var gun = game.currentWeapon();
   ui.ammo.innerHTML = gun
     ? (p.ammoFor[gun.id] || 0) + ' <small>darts · ' + gun.name + '</small>'
-    : '<small>no blaster — find one, or buy one at the armoury</small>';
+    : 'FISTS <small>— click or press S to swing</small>';
   ui.kit.textContent = p.medkits > 0
     ? p.medkits + ' med kit' + (p.medkits === 1 ? '' : 's') + ' — press H'
     : '';
@@ -910,6 +960,9 @@ function syncHud() {
   if (p.robTarget && p.robbing > 0) {
     ui.robbing.style.display = 'block';
     ui.robbingFill.style.width = Math.min(100, (p.robbing / C.ROB_TIME) * 100) + '%';
+  } else if (p.forceTarget && p.forcing > 0) {
+    ui.robbing.style.display = 'block';
+    ui.robbingFill.style.width = Math.min(100, (p.forcing / C.BREAK_IN_TIME) * 100) + '%';
   } else {
     ui.robbing.style.display = 'none';
   }
@@ -958,9 +1011,6 @@ function promptText() {
   var shop = game.nearestStore();
   if (shop.store && shop.d < C.STORE_RANGE) return '<b>E</b> open the armoury';
 
-  var door = game.nearestDoor();
-  if (door.d < C.DOOR_RANGE) return door.kind === 'out' ? '<b>E</b> leave the bank' : '<b>E</b> go into the bank';
-
   var gun = game.nearestGun();
   if (gun.gun && gun.d < C.PICKUP_RANGE) return '<b>E</b> pick up nerf blaster';
 
@@ -970,6 +1020,13 @@ function promptText() {
       : loot.loot.kind === 'register' ? 'till' : 'bank safe';
     if (loot.loot.cool > 0) return 'the ' + label + ' is empty (' + Math.ceil(loot.loot.cool) + 's)';
     return '<b>E</b> hold up the ' + label + ' — $' + loot.loot.cash;
+  }
+
+  var door = game.nearestDoor();
+  if (door.d < C.DOOR_RANGE) {
+    if (door.kind === 'out') return '<b>E</b> go back outside';
+    if (door.at && door.at.kind === 'bank') return '<b>E</b> go into the bank';
+    return 'hold <b>E</b> to force the door';
   }
 
   var car = game.nearestCar();
@@ -989,6 +1046,7 @@ function frame() {
 
   syncCars();
   syncCops(dt);
+  syncCivilians(dt);
   syncDarts();
   syncGuns(dt);
   syncCamera(dt);

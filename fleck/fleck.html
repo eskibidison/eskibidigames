@@ -25,7 +25,7 @@
   #hud{position:absolute;left:14px;top:12px;width:min(624px,66%);z-index:20;
        background:rgba(247,244,227,.94);border:1px solid rgba(120,110,80,.22);
        border-radius:11px;box-shadow:0 3px 13px rgba(60,55,45,.28);
-       font-size:14px;color:#4a4a4a}
+       font-size:12.5px;color:#4a4a4a}
   #portrait{position:absolute;left:-16px;bottom:-20px;width:82px;height:82px;
             border-radius:50%;background:#e9e5da;overflow:hidden;z-index:2;
             border:3px solid #fbf9ee;box-shadow:0 2px 7px rgba(0,0,0,.28)}
@@ -35,7 +35,7 @@
      centres on the face. Re-measure if the sprite is ever regenerated. */
   #portrait{background-repeat:no-repeat;background-size:92px 186px;
             background-position:-7px -28px;image-rendering:pixelated}
-  .hudgrid{display:grid;align-items:center;padding:9px 15px 10px 12px;
+  .hudgrid{display:grid;align-items:center;padding:5px 13px 6px 10px;
            grid-template-columns:auto minmax(80px,1fr) auto minmax(80px,1fr) auto auto;
            column-gap:11px;row-gap:9px}
   .lv{font-size:16px;white-space:nowrap}
@@ -43,7 +43,7 @@
   .blbl{font-size:16px;white-space:nowrap;text-align:right}
   .overtxt{display:flex;justify-content:space-between;gap:10px;font-size:10px;
            color:#6f6a60;line-height:11px;height:11px;white-space:nowrap}
-  .bar{height:12px;border-radius:6px;background:var(--track);overflow:hidden}
+  .bar{height:9px;border-radius:5px;background:var(--track);overflow:hidden}
   .bar i{display:block;height:100%;width:0;border-radius:6px;transition:width .25s}
   .cnum{font-size:16px;text-align:right;min-width:20px}
   .cic{width:26px;height:26px;border-radius:50%;background:#fff;display:grid;
@@ -58,15 +58,15 @@
   .money .m{display:flex;align-items:center;gap:7px}
   .money img{width:21px;height:21px;object-fit:contain;image-rendering:pixelated}
   #hudbtns{display:flex;gap:10px;background:#B2D571;border-top:1px solid #9dbf5f;
-           border-radius:0 0 10px 10px;padding:7px 12px 8px 64px}
-  .hbtn{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;
+           border-radius:0 0 10px 10px;padding:4px 10px 5px 58px}
+  .hbtn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
         background:linear-gradient(#d5eaa7,#aed069);border:1px solid #8fb44d;
         border-radius:8px;padding:6px 4px;color:#456B12;font-family:inherit;
-        font-size:15px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.55)}
+        font-size:13px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.55)}
   .hbtn:hover{background:linear-gradient(#e0f2b6,#bcdd7c)}
   /* The sound toggle is a small square, NOT another full-width button --
      .hbtn is flex:1, so leaving it default stretched the whole row. */
-  #sndbtn{flex:none;width:38px;padding:6px 0;font-size:17px}
+  #sndbtn{flex:none;width:32px;padding:3px 0;font-size:15px}
   .hbtn svg{width:20px;height:20px;flex:none}
   /* Real art replaces the placeholder SVGs. profile and quests arrived as
      COMPLETE buttons with their labels already drawn in, so those two hide
@@ -75,11 +75,11 @@
   /* The sprites are whole buttons, labels included, so the button below them
      drops its own background, border and text and just presents the art. */
   .rbtn.baked{background:none;border:none;box-shadow:none;padding:0;width:auto}
-  .rbtn.baked .ico{height:74px;width:auto;max-width:none}
+  .rbtn.baked .ico{height:50px;width:auto;max-width:none}
   .rbtn.baked span{display:none}
   .cico{width:17px;height:17px;object-fit:contain;image-rendering:pixelated}
   .hbtn.baked{padding:0;background:none;border:none;overflow:hidden}
-  .hbtn.baked .ico{height:42px}
+  .hbtn.baked .ico{height:27px}
   .hbtn.baked .lbl{display:none}
 
   /* ---- bottom bar: round buttons with a label beneath (bank, market,
@@ -750,7 +750,7 @@ const REACH = HEX_W * 1.15;
 // panel starts and VIEW_B is how much of the canvas foot the button bar
 // covers; the margin is measured against that visible box rather than the raw
 // canvas, so she never stops under a panel.
-const VIEW_R = 714, VIEW_B = 92;
+const VIEW_R = 714, VIEW_B = 68;
 // VIEW_T is the HUD panel, MEASURED off a screenshot at 157px into the canvas.
 // It matters because the follow margin used to be counted from y=0, so walking
 // north slid her underneath the HUD before the camera reacted at all -- the
@@ -2336,6 +2336,16 @@ function badge(x,y,kind){
   ctx.restore();
 }
 
+let __fertN;
+/** How many frames the fertilised sparkle has. Counted once. */
+function fertFrames(){
+  if(__fertN===undefined){
+    let n=0; while(n<32 && S['effects/fertilized_'+n]) n++;
+    __fertN=n;
+  }
+  return __fertN;
+}
+
 function shadow(x,y,w){
   ctx.save(); ctx.globalAlpha=.20; ctx.fillStyle='#4a4230';
   ctx.beginPath(); ctx.ellipse(x,y,w/2,w/5,0,0,7); ctx.fill(); ctx.restore();
@@ -2400,6 +2410,23 @@ function draw(){
         else if(p.dry) ctx.filter='sepia(.5) brightness(.95)';
         ctx.drawImage(img, e.x-w/2, e.y-h+HEX_H*.22, w, h);
         ctx.restore();
+
+        // Fertilised: the sparkle overlay, looping over the plant. The art has
+        // been sitting in sprites/effects since it was generated and nothing
+        // ever drew it, so fertilising a plant looked like it did nothing.
+        if(p.fert){
+          const fn = fertFrames();
+          if(fn){
+            const fi = Math.floor(G.t*9) % fn;
+            const fx = IMG['effects/fertilized_'+fi];
+            if(fx && fx.complete && fx.naturalWidth){
+              const fw = Math.max(w*1.15, 34), fh = fw*fx.naturalHeight/fx.naturalWidth;
+              ctx.save(); ctx.globalAlpha = .85;
+              ctx.drawImage(fx, e.x-fw/2, e.y-h*.55-fh*.45+HEX_H*.22, fw, fh);
+              ctx.restore();
+            }
+          }
+        }
 
         // status badge — the white disc with a grey ring from the original
         if(p.dry||p.dead||age>=s.grow){

@@ -119,6 +119,27 @@
 
     MAX_COPS: 10,
     MAX_POLICE_CARS: 5,
+    JUMP_SPEED: 6.4,
+    GRAVITY: 18,
+
+    MELEE_RANGE: 2.8,
+    MELEE_DAMAGE: 26,
+    MELEE_DELAY: 0.55,
+    MELEE_ARC: 1.1,           // radians either side of straight ahead
+
+    CIVILIANS: 9,
+    CIV_SPEED: 3.6,
+    CIV_FLEE_SPEED: 6.6,
+    CIV_HEALTH: 60,
+    CIV_BRAVE: 0.28,          // share who join in rather than run
+    CIV_FIRE_DELAY: 1.6,
+    CIV_DART_DAMAGE: 6,
+    CIV_RANGE: 20,
+
+    DOWNED_FORGET: 140,       // how far you must get before a body is tidied away
+    HIDEOUT_DECAY: 4,         // the heat drops this much faster while hidden
+    BREAK_IN_TIME: 1.6,
+
     RUN_OVER_SPEED: 6,        // how fast you must be going to flatten an officer
   };
 
@@ -154,6 +175,8 @@
   // Yaw 0 looks down -Z, matching the renderer's camera.
   function forwardX(yaw) { return -Math.sin(yaw); }
   function forwardZ(yaw) { return -Math.cos(yaw); }
+  // The inverse: the yaw that points along a direction.
+  function yawTowards(dx, dz) { return Math.atan2(-dx, -dz); }
 
   // --- city -----------------------------------------------------------------
 
@@ -240,7 +263,10 @@
           loot.push(reg);
         }
 
-        if (rnd() < 0.4) guns.push({ x: cx + (rnd() - 0.5) * 10, z: z0 - 3, taken: false });
+        if (rnd() < 0.4) guns.push({ x: cx + 4 + rnd() * 6, z: z0 - 3, taken: false });
+        if ((i * 3 + j) % 4 === 0) {
+          doors.push({ kind: 'hideout', x: cx - 6, z: z0 - 1.5, facing: Math.PI });
+        }
         if (rnd() < 0.5) {
           props.push({
             model: 'dumpster', rot: rnd() * 6.28, size: 2.2,
@@ -292,6 +318,23 @@
     loot.push({ kind: 'register', cash: 480, cool: 0, indoors: true,
       x: room.x0 + room.w / 2, z: room.z0 + room.d - 3, facing: 0 });
 
+    // One shared back room behind every forced door. You always come out of
+    // the door you went in through, so it does not matter that they match.
+    var den = { x0: -142, z0: 108, w: 14, d: 12, wall: 3.6 };
+    var hideout = {
+      room: den,
+      spawn: { x: den.x0 + den.w - 3, z: den.z0 + den.d / 2 },
+      exitAt: { x: den.x0 + den.w - 1.1, z: den.z0 + den.d / 2 },
+      walls: [],
+    };
+    var HT = 0.8, hgap = 2.0, hmid = den.z0 + den.d / 2;
+    hideout.walls.push({ x0: den.x0 - HT, z0: den.z0 - HT, x1: den.x0, z1: den.z0 + den.d + HT });
+    hideout.walls.push({ x0: den.x0 - HT, z0: den.z0 - HT, x1: den.x0 + den.w + HT, z1: den.z0 });
+    hideout.walls.push({ x0: den.x0 - HT, z0: den.z0 + den.d, x1: den.x0 + den.w + HT, z1: den.z0 + den.d + HT });
+    hideout.walls.push({ x0: den.x0 + den.w, z0: den.z0 - HT, x1: den.x0 + den.w + HT, z1: hmid - hgap });
+    hideout.walls.push({ x0: den.x0 + den.w, z0: hmid + hgap, x1: den.x0 + den.w + HT, z1: den.z0 + den.d + HT });
+    for (var hw = 0; hw < hideout.walls.length; hw++) boxes.push(hideout.walls[hw]);
+
     // Armouries: shopfronts on the pavement where you spend what you steal.
     var stores = [
       { x: C.BLOCK * 3 + 14, z: C.BLOCK * 3 - C.HALF_ROAD - 1.6, facing: Math.PI },
@@ -309,7 +352,7 @@
     return {
       boxes: boxes, buildings: buildings, loot: loot,
       guns: guns, props: props, blocks: blockInfo,
-      doors: doors, interior: interior, stores: stores
+      doors: doors, interior: interior, hideout: hideout, stores: stores
     };
   }
 
@@ -368,17 +411,21 @@
         hasGun: false, ammo: 0,
         weapon: null, owned: {}, ammoFor: {}, medkits: 0,
         indoors: false,
-        fireCooldown: 0, hurtAt: -99, robbing: 0, robTarget: null,
-        soaked: false, soakTimer: 0, bob: 0
+        fireCooldown: 0, hurtAt: -99, meleeAt: -99, robbing: 0, robTarget: null,
+        forcing: 0, forceTarget: null,
+        soaked: false, soakTimer: 0, bob: 0,
+        y: 0, vy: 0, onGround: true
       },
       cars: [],
       cops: [],
+      civilians: [],
       darts: [],
       wanted: 0,
       wantedDecay: 0,
       events: [],
       store: { open: false, items: storeStock(), at: null },
-      stats: { robbed: 0, copsDropped: 0, copsRunOver: 0, carsStolen: 0, timesSoaked: 0 },
+      stats: { robbed: 0, copsDropped: 0, copsRunOver: 0, carsStolen: 0, timesSoaked: 0,
+        brokeIn: 0, civiliansHelped: 0 },
     };
 
     // --- traffic and parked cars ---------------------------------------------
@@ -491,6 +538,18 @@
       // the keyboard matters for anyone who cannot aim with a mouse yet.
       var turn = (input.turnLeft ? 1 : 0) - (input.turnRight ? 1 : 0);
       if (turn) p.yaw += turn * C.TURN_SPEED * dt;
+
+      // Jumping. Purely vertical: you cannot get onto anything with it, but it
+      // feels much better than being glued to the pavement.
+      if (input.jump && p.onGround) {
+        p.vy = C.JUMP_SPEED;
+        p.onGround = false;
+      }
+      if (!p.onGround) {
+        p.vy -= C.GRAVITY * dt;
+        p.y += p.vy * dt;
+        if (p.y <= 0) { p.y = 0; p.vy = 0; p.onGround = true; }
+      }
 
       var fx = forwardX(p.yaw), fz = forwardZ(p.yaw);
       var rx = -fz, rz = fx;                       // right-hand vector
@@ -626,8 +685,15 @@
 
     // --- police ----------------------------------------------------------------
 
+    // Officers still on their feet. Downed ones are scenery, not opposition.
+    function standingCops() {
+      var n = 0;
+      for (var i = 0; i < state.cops.length; i++) if (state.cops[i].state !== 'sat') n++;
+      return n;
+    }
+
     function spawnCop(x, z) {
-      if (state.cops.length >= C.MAX_COPS) return null;
+      if (standingCops() >= C.MAX_COPS) return null;
       var cop = {
         x: x, z: z, health: C.COP_HEALTH, cooldown: 0.8 + rnd() * 0.8,
         state: 'chase', sat: 0, bob: rnd() * 6
@@ -665,8 +731,9 @@
       var pos = playerPos();
       var p = state.player;
 
+      var hidden = !!p.indoors;
       if (state.wanted > 0) {
-        state.wantedDecay -= dt;
+        state.wantedDecay -= dt * (hidden ? C.HIDEOUT_DECAY : 1);
         if (state.wantedDecay <= 0) {
           state.wanted--;
           state.wantedDecay = C.WANTED_DECAY;
@@ -674,7 +741,7 @@
         }
 
         copSpawnTimer -= dt;
-        if (copSpawnTimer <= 0 && state.cops.length < state.wanted + 1) {
+        if (!hidden && copSpawnTimer <= 0 && standingCops() < state.wanted + 1) {
           var ang = rnd() * Math.PI * 2;
           var d = 34 + rnd() * 18;
           var cx = clamp(pos.x + Math.cos(ang) * d, 4, C.WORLD - 4);
@@ -684,14 +751,16 @@
         }
 
         carSpawnTimer -= dt;
-        if (carSpawnTimer <= 0) {
+        if (!hidden && carSpawnTimer <= 0) {
           spawnPoliceCar();
           carSpawnTimer = Math.max(3, 10 - state.wanted * 1.6);
         }
       } else {
         // Everyone goes home when the heat is off.
         for (var q = state.cops.length - 1; q >= 0; q--) {
-          if (dist(pos.x, pos.z, state.cops[q].x, state.cops[q].z) > 45) state.cops.splice(q, 1);
+          var going = state.cops[q];
+          var far = dist(pos.x, pos.z, going.x, going.z);
+          if (going.state === 'sat' ? far > C.DOWNED_FORGET : far > 45) state.cops.splice(q, 1);
         }
         for (var r = state.cars.length - 1; r >= 0; r--) {
           if (state.cars[r].kind === 'police' &&
@@ -703,8 +772,9 @@
         var cop = state.cops[i];
 
         if (cop.state === 'sat') {
-          cop.sat -= dt;
-          if (cop.sat <= 0) state.cops.splice(i, 1);
+          // Stays down for good. Only cleaned up once you are nowhere near it,
+          // so the streets do not fill with bodies you will never see again.
+          if (dist(pos.x, pos.z, cop.x, cop.z) > C.DOWNED_FORGET) state.cops.splice(i, 1);
           continue;
         }
 
@@ -720,10 +790,123 @@
         }
 
         cop.cooldown -= dt;
-        if (gap < C.COP_RANGE && cop.cooldown <= 0 && !p.soaked) {
+        if (gap < C.COP_RANGE && cop.cooldown <= 0 && !p.soaked && !p.indoors && !state.store.open) {
           cop.cooldown = C.COP_FIRE_DELAY;
           fireDart(cop.x, 1.4, cop.z, pos.x, p.driving ? 1.0 : 1.3, pos.z,
             C.COP_DART_SPEED, 'police', C.COP_DART_DAMAGE, 0.16);
+        }
+      }
+    }
+
+    // --- the public ------------------------------------------------------------
+    //
+    // People wander the streets. When the police turn up most of them bolt, but
+    // a few decide they are on your side and start throwing darts of their own.
+
+    function spawnCivilian() {
+      var pos = playerPos();
+      for (var attempt = 0; attempt < 14; attempt++) {
+        var ang = rnd() * Math.PI * 2;
+        var away = 22 + rnd() * 26;
+        var x = clamp(pos.x + Math.cos(ang) * away, 4, C.WORLD - 4);
+        var z = clamp(pos.z + Math.sin(ang) * away, 4, C.WORLD - 4);
+        if (blocked(x, z, 0.7)) continue;
+        var person = {
+          x: x, z: z, yaw: rnd() * 6.28, health: C.CIV_HEALTH,
+          state: 'wander', isCivilian: true, brave: rnd() < C.CIV_BRAVE,
+          model: rnd() < 0.5 ? 'civ-a' : 'civ-b',
+          cooldown: rnd() * 2, bob: rnd() * 6, target: null, repath: 0,
+        };
+        state.civilians.push(person);
+        return person;
+      }
+      return null;
+    }
+
+    function hurtCivilian(person, amount, source) {
+      if (person.state === 'sat') return;
+      person.health -= amount;
+      if (source === 'player' && state.wanted < 2) raiseWanted(1);
+      if (person.health <= 0) {
+        person.state = 'sat';
+        if (source === 'player') say('that was a member of the public', 2.2);
+      }
+    }
+
+    function nearestStandingCop(x, z) {
+      var best = null, bestD = Infinity;
+      for (var i = 0; i < state.cops.length; i++) {
+        var cop = state.cops[i];
+        if (cop.state === 'sat') continue;
+        var d = dist(x, z, cop.x, cop.z);
+        if (d < bestD) { bestD = d; best = cop; }
+      }
+      return { cop: best, d: bestD };
+    }
+
+    function stepPerson(person, dx, dz, speed, dt) {
+      var len = Math.hypot(dx, dz);
+      if (len < 0.001) return;
+      dx /= len; dz /= len;
+      person.yaw = yawTowards(dx, dz);
+      person.bob += dt * speed;
+      var nx = person.x + dx * speed * dt;
+      if (!blocked(nx, person.z, 0.6)) person.x = nx; else person.repath = 0;
+      var nz = person.z + dz * speed * dt;
+      if (!blocked(person.x, nz, 0.6)) person.z = nz; else person.repath = 0;
+    }
+
+    function updateCivilians(dt) {
+      var pos = playerPos();
+
+      // Keep a few about, near enough to matter, and tidy away the far ones.
+      var standing = 0;
+      for (var c = state.civilians.length - 1; c >= 0; c--) {
+        var far = dist(pos.x, pos.z, state.civilians[c].x, state.civilians[c].z);
+        var down = state.civilians[c].state === 'sat';
+        if (down ? far > C.DOWNED_FORGET : far > 110) { state.civilians.splice(c, 1); continue; }
+        if (!down) standing++;
+      }
+      if (standing < C.CIVILIANS && !state.player.indoors) spawnCivilian();
+
+      for (var i = 0; i < state.civilians.length; i++) {
+        var person = state.civilians[i];
+        if (person.state === 'sat') continue;
+
+        var near = nearestStandingCop(person.x, person.z);
+        var trouble = state.wanted > 0 && near.cop && near.d < 30;
+
+        if (trouble && person.brave) {
+          person.state = 'fight';
+          // Close to a sensible range, then start throwing darts.
+          if (near.d > C.CIV_RANGE * 0.7) {
+            stepPerson(person, near.cop.x - person.x, near.cop.z - person.z, C.CIV_SPEED, dt);
+          } else {
+            person.yaw = yawTowards(near.cop.x - person.x, near.cop.z - person.z);
+          }
+          person.cooldown -= dt;
+          if (person.cooldown <= 0 && near.d < C.CIV_RANGE) {
+            person.cooldown = C.CIV_FIRE_DELAY;
+            fireDart(person.x, 1.3, person.z, near.cop.x, 1.4, near.cop.z,
+              C.COP_DART_SPEED, 'civilian', C.CIV_DART_DAMAGE, 0.1);
+          }
+        } else if (trouble) {
+          person.state = 'flee';
+          stepPerson(person, person.x - near.cop.x, person.z - near.cop.z, C.CIV_FLEE_SPEED, dt);
+        } else {
+          person.state = 'wander';
+          person.repath -= dt;
+          if (!person.target || person.repath <= 0) {
+            var ang = rnd() * Math.PI * 2;
+            person.target = {
+              x: clamp(person.x + Math.cos(ang) * (8 + rnd() * 18), 3, C.WORLD - 3),
+              z: clamp(person.z + Math.sin(ang) * (8 + rnd() * 18), 3, C.WORLD - 3),
+            };
+            person.repath = 3 + rnd() * 4;
+          }
+          var toX = person.target.x - person.x, toZ = person.target.z - person.z;
+          if (Math.hypot(toX, toZ) < 1.2) person.repath = 0;
+          else stepPerson(person, toX, toZ, C.CIV_SPEED, dt);
         }
       }
     }
@@ -762,18 +945,33 @@
         if (!gone && d.owner === 'police' && !p.soaked) {
           var hitR = p.driving ? 2.0 : 0.85;
           if (segmentDistance(fromX, fromZ, d.x, d.z, pos.x, pos.z) < hitR &&
-              lowY < (p.driving ? 2.2 : 2.0)) {
+              lowY < (p.driving ? 2.2 : 2.0 + p.y)) {
             hurtPlayer(d.damage);
             gone = true;
           }
         }
-        if (!gone && d.owner === 'player') {
+        // Darts from you or from a helpful bystander both trouble the police.
+        if (!gone && (d.owner === 'player' || d.owner === 'civilian')) {
           for (var c = 0; c < state.cops.length; c++) {
             var cop = state.cops[c];
             if (cop.state === 'sat') continue;
             if (segmentDistance(fromX, fromZ, d.x, d.z, cop.x, cop.z) < C.COP_HIT_R &&
                 highY > 0.2 && lowY < 2.4) {
               hurtCop(cop, d.damage);
+              if (d.owner === 'civilian') state.stats.civiliansHelped++;
+              gone = true;
+              break;
+            }
+          }
+        }
+        // Anyone can catch a stray. Police darts included.
+        if (!gone && d.owner !== 'civilian') {
+          for (var v = 0; v < state.civilians.length; v++) {
+            var bystander = state.civilians[v];
+            if (bystander.state === 'sat') continue;
+            if (segmentDistance(fromX, fromZ, d.x, d.z, bystander.x, bystander.z) < C.COP_HIT_R &&
+                highY > 0.2 && lowY < 2.4) {
+              hurtCivilian(bystander, d.damage, d.owner);
               gone = true;
               break;
             }
@@ -785,6 +983,8 @@
 
     function hurtPlayer(amount, graceless) {
       var p = state.player;
+      // Nobody can touch you while you are shopping or inside a building.
+      if (!graceless && (p.indoors || state.store.open)) return;
       if (!graceless && state.t - p.hurtAt < C.HIT_GRACE) return;
       p.health = Math.max(0, p.health - amount);
       p.hurtAt = state.t;
@@ -797,13 +997,13 @@
     }
 
     function hurtCop(cop, amount) {
+      if (cop.state === 'sat') return;
       cop.health -= amount;
-      if (cop.health <= 0 && cop.state !== 'sat') {
+      if (cop.health <= 0) {
         cop.state = 'sat';
-        cop.sat = 9;
         state.stats.copsDropped++;
-        say('officer sits down for a bit', 2);
-        // A dropped officer leaves their nerf gun behind.
+        say('officer is out of the fight', 2);
+        // A dropped officer leaves their nerf blaster behind.
         city.guns.push({ x: cop.x, z: cop.z, taken: false });
       }
     }
@@ -826,7 +1026,7 @@
       p.ammo = p.ammoFor[gun.id];
 
       var pos = playerPos();
-      var eye = p.driving ? 1.2 : C.EYE;
+      var eye = p.driving ? 1.2 : C.EYE + p.y;
       // A scatter blaster throws several darts at once; the rest throw one.
       for (var n = 0; n < (gun.pellets || 1); n++) {
         var yaw = p.yaw + (rnd() - 0.5) * gun.spread * 2;
@@ -843,6 +1043,34 @@
       // Shooting at the police is, understandably, a crime.
       if (state.wanted < 1) raiseWanted(1);
       return true;
+    }
+
+    // Bare hands. Not much reach, but it is always available.
+    function tryMelee() {
+      var p = state.player;
+      if (p.soaked || state.store.open || p.driving || p.fireCooldown > 0) return false;
+      p.fireCooldown = C.MELEE_DELAY;
+      p.meleeAt = state.t;
+
+      var pos = playerPos();
+      var fx = forwardX(p.yaw), fz = forwardZ(p.yaw);
+      var landed = false;
+
+      var targets = state.cops.concat(state.civilians);
+      for (var i = 0; i < targets.length; i++) {
+        var who = targets[i];
+        if (who.state === 'sat') continue;
+        var dx = who.x - pos.x, dz = who.z - pos.z;
+        var range = Math.hypot(dx, dz);
+        if (range > C.MELEE_RANGE || range < 0.001) continue;
+        // Only what is roughly in front of you.
+        if (Math.acos(clamp((dx / range) * fx + (dz / range) * fz, -1, 1)) > C.MELEE_ARC) continue;
+        if (who.isCivilian) hurtCivilian(who, C.MELEE_DAMAGE, 'player');
+        else hurtCop(who, C.MELEE_DAMAGE);
+        landed = true;
+      }
+      if (landed && state.wanted < 1) raiseWanted(1);
+      return landed;
     }
 
     function giveWeapon(id, ammo) {
@@ -893,7 +1121,7 @@
       var pos = playerPos();
       var p = state.player;
       if (p.indoors) {
-        var e = city.interior.exitAt;
+        var e = (p.indoors === 'hideout' ? city.hideout : city.interior).exitAt;
         return { kind: 'out', d: dist(pos.x, pos.z, e.x, e.z) };
       }
       var best = null, bestD = Infinity;
@@ -907,12 +1135,22 @@
 
     function enterBank(door) {
       var p = state.player;
-      p.indoors = true;
+      p.indoors = 'bank';
       p.returnTo = { x: door.x, z: door.z + 3 };
       p.x = city.interior.spawn.x;
       p.z = city.interior.spawn.z;
       p.yaw = Math.PI / 2;                          // facing into the room
       say('inside the bank — the safe is at the back', 3);
+    }
+
+    function enterHideout(door) {
+      var p = state.player;
+      p.indoors = 'hideout';
+      p.returnTo = { x: door.x, z: door.z + 3 };
+      p.x = city.hideout.spawn.x;
+      p.z = city.hideout.spawn.z;
+      p.yaw = Math.PI / 2;
+      say('you are hidden — wait here and the police give up', 3.4);
     }
 
     function leaveBank() {
@@ -995,12 +1233,6 @@
         return state.store.open ? 'store' : 'store-close';
       }
 
-      var door = nearestDoor();
-      if (door.d < C.DOOR_RANGE) {
-        if (door.kind === 'out') { leaveBank(); return 'leave'; }
-        if (door.at) { enterBank(door.at); return 'enter-bank'; }
-      }
-
       var gun = nearestGun();
       if (gun.gun && gun.d < C.PICKUP_RANGE) {
         gun.gun.taken = true;
@@ -1015,6 +1247,17 @@
         p.robTarget = near.loot;
         p.robbing = 0.0001;                         // held-E progress starts
         return 'rob';
+      }
+
+      var door = nearestDoor();
+      if (door.d < C.DOOR_RANGE) {
+        if (door.kind === 'out') { leaveBank(); return 'leave'; }
+        if (door.at && door.at.kind === 'bank') { enterBank(door.at); return 'enter-bank'; }
+        if (door.at) {                              // a locked door: force it
+          p.forceTarget = door.at;
+          p.forcing = 0.0001;
+          return 'forcing';
+        }
       }
 
       var found = nearestCar();
@@ -1043,6 +1286,27 @@
         if (d < bestD) { bestD = d; best = g; }
       }
       return { gun: best, d: bestD };
+    }
+
+    // Shouldering a door open. Same hold-to-do-it feel as a robbery.
+    function updateBreakIn(dt, input) {
+      var p = state.player;
+      if (!p.forceTarget) return;
+      var pos = playerPos();
+      if (!input.interact || dist(pos.x, pos.z, p.forceTarget.x, p.forceTarget.z) > C.DOOR_RANGE || p.soaked) {
+        p.forcing = 0;
+        p.forceTarget = null;
+        return;
+      }
+      p.forcing += dt;
+      if (p.forcing >= C.BREAK_IN_TIME) {
+        var door = p.forceTarget;
+        p.forcing = 0;
+        p.forceTarget = null;
+        raiseWanted(1);
+        state.stats.brokeIn++;
+        enterHideout(door);
+      }
     }
 
     function updateRobbery(dt, input) {
@@ -1101,14 +1365,18 @@
         if (!state.store.open) {
           if (p.driving && p.car) driveCar(dt, input); else moveOnFoot(dt, input);
           updateRobbery(dt, input);
+          updateBreakIn(dt, input);
         }
       }
 
       if (p.fireCooldown > 0) p.fireCooldown -= dt;
-      if (input.fire) tryShoot();
+      if (input.fire) {
+        if (currentWeapon()) tryShoot(); else tryMelee();
+      }
 
       updateTraffic(dt);
       updatePolice(dt);
+      updateCivilians(dt);
       updateDarts(dt);
 
       // Health comes back on its own once nobody has hit you for a while.
@@ -1145,6 +1413,7 @@
       nearestLoot: nearestLoot,
       nearestCar: nearestCar,
       nearestGun: nearestGun,
+      melee: tryMelee,
       nearestStore: nearestStore,
       nearestDoor: nearestDoor,
       currentWeapon: currentWeapon,
@@ -1155,8 +1424,11 @@
       weapons: WEAPONS,
       playerPos: playerPos,
       spawnCop: spawnCop,
+      spawnCivilian: spawnCivilian,
+      hurtCivilian: hurtCivilian,
       raiseWanted: raiseWanted,
       hurtPlayer: hurtPlayer,
+      hurtCop: hurtCop,
     };
   }
 

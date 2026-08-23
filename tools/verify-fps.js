@@ -292,6 +292,31 @@ const CODES = {
   await shoot('10-bank-inside');
   console.log(`  bank entry -> ${inside}`);
 
+  // Bystanders on the street, with the police out.
+  await evaluate(`
+    (function () {
+      S.player.indoors = false;
+      S.player.x = 180; S.player.z = 180; S.player.yaw = 0;
+      game.raiseWanted(2);
+      return 1;
+    })()
+  `);
+  await sleep(9000);
+  const crowd = await evaluate('({ civ: S.civilians.length, brave: S.civilians.filter(function(c){return c.brave;}).length })');
+  await evaluate(`
+    (function () {
+      var near = S.civilians.filter(function (c) { return c.state !== 'sat'; })[0];
+      if (near) {
+        S.player.x = near.x + 4; S.player.z = near.z + 4;
+        S.player.yaw = Math.atan2(-(near.x - S.player.x), -(near.z - S.player.z));
+      }
+      return 1;
+    })()
+  `);
+  await sleep(800);
+  await shoot('12-bystanders');
+  console.log(`  bystanders: ${crowd.civ} about, ${crowd.brave} brave`);
+
   // Measure the actual frame rate under the worst case the player complained
   // about: five stars, police everywhere, and darts in the air.
   await evaluate(`

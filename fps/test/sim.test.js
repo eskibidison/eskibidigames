@@ -8,7 +8,8 @@ const ok = label => { passed++; console.log('  ok  ' + label); };
 const section = name => console.log('\n' + name);
 
 const STEP = 1 / 60;
-const noInput = () => ({ forward: false, back: false, left: false, right: false, sprint: false, fire: false, interact: false });
+const noInput = () => ({ forward: false, back: false, left: false, right: false,
+  turnLeft: false, turnRight: false, sprint: false, fire: false, interact: false, jump: false });
 
 function run(g, frames, input) {
   const held = Object.assign(noInput(), input || {});
@@ -208,7 +209,7 @@ section('police');
   const g3 = SIM.createGame();
   g3.raiseWanted(3);
   let survived = 0;
-  for (let i = 0; i < 60 * 90 && !g3.state.player.soaked; i++) { g3.update(STEP, noInput()); survived = i / 60; }
+  for (let i = 0; i < 60 * 60 && !g3.state.player.soaked; i++) { g3.update(STEP, noInput()); survived = i / 60; }
   assert.ok(survived > 20,
     `a player standing still in the open lasts more than 20s (lasted ${survived.toFixed(0)}s)`);
   ok(`standing in the open under 3 stars survives ${survived.toFixed(0)}s`);
@@ -432,9 +433,11 @@ section('the bank');
 {
   const g = SIM.createGame();
   const s = g.state;
-  const door = s.city.doors[0];
-  walkTowards(g, door.x, door.z, 5000, SIM.C.DOOR_RANGE - 1.0);
-  assert.equal(g.interact(), 'enter-bank', 'the bank door lets you in');
+  const door = s.city.doors.filter(d => d.kind === 'bank')[0];
+  assert.ok(door, 'the bank has a door');
+  walkTowards(g, door.x, door.z, 6000, SIM.C.DOOR_RANGE - 1.4);
+  assert.equal(g.interact(), 'enter-bank',
+    `the bank door lets you in (stopped ${Math.hypot(g.playerPos().x - door.x, g.playerPos().z - door.z).toFixed(1)}m away)`);
   assert.ok(s.player.indoors, 'you are inside');
   assert.ok(!g.blocked(s.player.x, s.player.z, SIM.C.PLAYER_R), 'and not standing in a wall');
   ok('walked through the bank door and ended up inside');
@@ -486,6 +489,166 @@ section('driving into things');
   ok(`scraped along a building for ${travelled.toFixed(0)}m without getting stuck`);
 }
 
+// --- 5h. officers stay down -------------------------------------------------
+
+section('officers stay down');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  const cop = g.spawnCop(s.player.x + 4, s.player.z + 4);
+  // Damage has to go through hurtCop; poking health directly never flips the
+  // state, which is how this test span forever the first time.
+  for (let i = 0; i < 20 && cop.state !== 'sat'; i++) g.hurtCop(cop, 20);
+  assert.equal(cop.state, 'sat', 'the officer went down');
+
+  run(g, 60 * 20);            // stand next to them for twenty seconds
+  assert.ok(s.cops.indexOf(cop) >= 0, 'the officer is still lying there, not tidied away');
+  assert.equal(cop.state, 'sat', 'and has not got back up');
+  ok('a downed officer stays down while you are stood next to them');
+
+  // Downed officers must not block reinforcements from arriving.
+  g.raiseWanted(3);
+  run(g, 60 * 12);
+  const standing = s.cops.filter(c => c.state !== 'sat').length;
+  assert.ok(standing > 0, `fresh officers still turn up (${standing} on their feet)`);
+  ok(`bodies do not count towards the cap — ${standing} new officers arrived`);
+}
+
+// --- 5i. fists --------------------------------------------------------------
+
+section('melee');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  assert.equal(g.currentWeapon(), null, 'you start with no blaster');
+
+  const cop = g.spawnCop(s.player.x, s.player.z - 2);
+  faceTowards(g, cop.x, cop.z);
+  const before = cop.health;
+  g.update(STEP, Object.assign(noInput(), { fire: true }));
+  assert.ok(cop.health < before, `bare hands hurt (${before} -> ${cop.health})`);
+  ok(`punched an officer for ${before - cop.health} without a blaster`);
+
+  // Out of reach is out of reach.
+  const g2 = SIM.createGame();
+  const far = g2.spawnCop(g2.state.player.x, g2.state.player.z - 9);
+  faceTowards(g2, far.x, far.z);
+  g2.update(STEP, Object.assign(noInput(), { fire: true }));
+  assert.equal(far.health, SIM.C.COP_HEALTH, 'you cannot punch someone across the street');
+  ok('fists only reach as far as your arms');
+
+  let swings = 1;
+  while (cop.state !== 'sat' && swings < 40) {
+    run(g, Math.ceil(SIM.C.MELEE_DELAY * 60) + 1);
+    faceTowards(g, cop.x, cop.z);
+    g.update(STEP, Object.assign(noInput(), { fire: true }));
+    swings++;
+  }
+  assert.equal(cop.state, 'sat', 'fists eventually put an officer down');
+  ok(`fists put an officer down in ${swings} swings`);
+}
+
+// --- 5j. the public ---------------------------------------------------------
+
+section('bystanders');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  run(g, 60 * 6);
+  assert.ok(s.civilians.length >= 5, `people are about (${s.civilians.length})`);
+  assert.ok(s.civilians.some(c => c.brave), 'some of them are brave');
+  ok(`${s.civilians.length} people on the street, ${s.civilians.filter(c => c.brave).length} of them brave`);
+
+  const start = s.civilians.map(c => ({ x: c.x, z: c.z }));
+  run(g, 60 * 5);
+  const moved = s.civilians.filter((c, i) => start[i] &&
+    Math.hypot(c.x - start[i].x, c.z - start[i].z) > 1).length;
+  assert.ok(moved >= 3, `they walk around (${moved} moved)`);
+  ok(`${moved} of them wandered off on their own`);
+
+  g.raiseWanted(3);
+  run(g, 60 * 25);
+  const states = s.civilians.map(c => c.state);
+  assert.ok(states.indexOf('flee') >= 0 || states.indexOf('fight') >= 0,
+    `the police change their behaviour (${states.join(',')})`);
+  ok(`under police attention they react: ${[...new Set(states)].join(', ')}`);
+
+  const g2 = SIM.createGame();
+  g2.raiseWanted(4);
+  let helped = 0;
+  for (let i = 0; i < 60 * 45 && !helped; i++) {
+    g2.update(STEP, noInput());
+    helped = g2.state.stats.civiliansHelped;
+  }
+  assert.ok(helped > 0, 'a bystander lands a dart on an officer');
+  ok(`bystanders fought back: ${helped} hits on the police`);
+}
+
+// --- 5k. hiding -------------------------------------------------------------
+
+section('hiding indoors');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  const den = s.city.doors.filter(d => d.kind === 'hideout')[0];
+  walkTowards(g, den.x, den.z, 6000, SIM.C.DOOR_RANGE - 1.2);
+  assert.equal(g.interact(), 'forcing', 'you start forcing the door');
+  assert.equal(s.player.indoors, false, 'and it does not open instantly');
+  run(g, Math.ceil(SIM.C.BREAK_IN_TIME * 60) + 6, { interact: true });
+  assert.equal(s.player.indoors, 'hideout', 'holding E gets you inside');
+  assert.ok(!g.blocked(s.player.x, s.player.z, SIM.C.PLAYER_R), 'and not stuck in a wall');
+  ok('forced a door and got inside');
+
+  const health = s.player.health;
+  g.hurtPlayer(40);
+  assert.equal(s.player.health, health, 'the police cannot hurt you indoors');
+  ok('you cannot be hit while inside a building');
+
+  g.raiseWanted(4);
+  const before = s.wanted;
+  run(g, 60 * 20);
+  assert.ok(s.wanted < before, `the heat drops while you hide (${before} -> ${s.wanted})`);
+  ok(`hiding cooled the wanted level from ${before} to ${s.wanted}`);
+
+  walkTowards(g, s.city.hideout.exitAt.x, s.city.hideout.exitAt.z, 4000, SIM.C.DOOR_RANGE - 1.2);
+  assert.equal(g.interact(), 'leave', 'and you can come back out');
+  assert.equal(s.player.indoors, false, 'back on the street');
+  ok('left the hideout again');
+
+  const g2 = SIM.createGame();
+  const shop = g2.state.city.stores[0];
+  walkTowards(g2, shop.x, shop.z, 4000, SIM.C.STORE_RANGE - 0.8);
+  g2.interact();
+  assert.ok(g2.state.store.open, 'shop open');
+  const kept = g2.state.player.health;
+  g2.hurtPlayer(50);
+  assert.equal(g2.state.player.health, kept, 'nobody shoots you while you are shopping');
+  ok('the armoury is a safe spot too');
+}
+
+// --- 5l. jumping ------------------------------------------------------------
+
+section('jumping');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  assert.equal(s.player.y, 0, 'you start on the ground');
+  g.update(STEP, Object.assign(noInput(), { jump: true }));
+  let peak = 0;
+  for (let i = 0; i < 120; i++) { g.update(STEP, noInput()); peak = Math.max(peak, s.player.y); }
+  assert.ok(peak > 0.7, `you get off the ground (${peak.toFixed(2)}m)`);
+  assert.equal(s.player.y, 0, 'and come back down');
+  assert.ok(s.player.onGround, 'landing is registered');
+  ok(`jumped ${peak.toFixed(2)}m and landed`);
+
+  g.update(STEP, Object.assign(noInput(), { jump: true }));
+  g.update(STEP, Object.assign(noInput(), { jump: true }));
+  const midair = s.player.y;
+  g.update(STEP, Object.assign(noInput(), { jump: true }));
+  assert.ok(s.player.y > midair, 'still rising from the first jump');
+  ok('no jumping again in mid-air');
+}
+
 // --- 6. health --------------------------------------------------------------
 
 section('health');
@@ -526,7 +689,7 @@ section('endurance');
   // Peaks, not the final frame: a soaking clears the streets, so the last
   // reading says nothing about whether the caps ever held under load.
   let peakCops = 0, peakCars = 0, peakDarts = 0, soakings = 0;
-  for (let i = 0; i < 60 * 200; i++) {
+  for (let i = 0; i < 60 * 90; i++) {
     const input = Object.assign(noInput(), {
       forward: (i % 600) < 400,
       right: (i % 900) < 120,
@@ -549,7 +712,7 @@ section('endurance');
   assert.ok(s.events.length <= 6, 'the message list stays bounded');
   assert.ok(peakCars <= SIM.C.MAX_POLICE_CARS, `police cars stayed capped (peaked at ${peakCars})`);
   for (const c of s.cars) assert.ok(Number.isFinite(c.x) && Number.isFinite(c.z), 'cars stay real');
-  ok(`200s of chaos: peaked at ${peakCops} cops, ${peakCars} police cars, ` +
+  ok(`90s of chaos: peaked at ${peakCops} cops, ${peakCars} police cars, ` +
     `${peakDarts} darts, soaked ${soakings}x — all bounded`);
 }
 

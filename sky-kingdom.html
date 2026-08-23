@@ -645,7 +645,23 @@ function loadShop(){
   } catch(e){ wallet = 0; owned = SKINS.map((_,i)=>i===0); equipped = 0; unlocked = 0; powers = {}; medals = {}; }
 }
 let medals = {};
+/* 0 = cleared without losing a heart, 1 = every gold cup, 2 = under the clock */
+const MEDAL_NAMES = ['NO HIT', 'ALL CUPS', 'SPEEDY'];
 const medalHas = (lv, m) => !!(medals[lv] & (1 << m));
+const medalTarget = lv => 3200 + lv*260;      // frames allowed for the SPEEDY medal
+function awardMedals(lv){
+  const got = [];
+  if (game.lvHitless)                                got.push(0);
+  if (game.lvCupsTotal > 0 && game.lvCups >= game.lvCupsTotal) got.push(1);
+  if (game.lvFrames <= medalTarget(lv))              got.push(2);
+  const before = medals[lv] || 0;
+  let after = before;
+  for (const m of got) after |= (1 << m);
+  medals[lv] = after;
+  game.newMedals = got.filter(m => !(before & (1 << m)));
+  game.gotMedals = got;
+  return got;
+}
 function saveShop(){
   try {
     localStorage.setItem('skykingdom_wallet', String(wallet));
@@ -691,6 +707,7 @@ function score(){ return game.coins*10 + game.cups*25 + game.level*100; }
 /* one shared damage entry point for all three acts */
 function hurt(){
   if (game.inv > 0 || game.hp <= 0) return;
+  game.lvHitless = false;
   game.hp--;
   game.inv = 100;
   addShake(7); flashWhite = 5;
@@ -769,12 +786,19 @@ function startLevel(n){
   game.inv = 0;
   game.flagDone = false;
   game.introT = 150;
+  game.lvHitless = true;      // stays true only if nothing lands a hit
+  game.lvCups = 0;            // gold cups grabbed in this level's drop
+  game.lvCupsTotal = 0;       // how many there were to grab
+  game.lvFrames = 0;          // frames spent in the level
+  game.newMedals = [];
+  game.gotMedals = [];
   for (let i=0;i<12;i++) spawnNext();
   game.p = { x:52, y:92, vx:0, vy:0, onGround:false, face:1, walkT:0,
              coyote:0, buffer:0, airJumps:0, lastSafe:{x:52,y:92} };
   game.dog = { x:52-120, y:108, t:0, angry:0 };
   cam.x = 0; cam.y = 0;
   particles = [];
+  weatherInit();
   mode = 'run';
   Snd.play('river');
   clearPressed();
@@ -973,6 +997,7 @@ function drawSky(){
   const bx = W - ((cam.x*0.28 + T*0.10) % (W+300)) + 140;
   ctx.drawImage(IMG.boat, 0,0,80,32, Math.round(bx), Math.round(124 + Math.sin(T*0.03)*2), 80, 32);
 }
+
 function drawWater(){
   ctx.fillStyle = '#2f7fc4'; ctx.fillRect(0, WATER_Y, W, H-WATER_Y);
   ctx.fillStyle = '#3e9bdc'; ctx.fillRect(0, WATER_Y, W, 5);
@@ -1058,6 +1083,7 @@ function drawRun(){
   drawPet(-cam.x, 0);
   drawHero2D();
   drawParticles(cam.x, 0);
+  drawWeather(cam.x);
   drawTopBar();
   if (game.p.x - game.dog.x < 60 && (T>>3)%2) textCS('RUN!', 36, '#ff6a6a');
   else if (game.introT > 0){
@@ -1093,6 +1119,77 @@ const FOCAL = 210, NEARZ = 26, SHAFT_R = 118, RING_GAP = 150;
 
 /* Each world's rims are made of something different. Order per theme:
    under-shadow, top face, lip highlight, inner shade, outline. */
+/* Weather is atmosphere only - it never touches the hero or the platforms. */
+const WEATHER = ['none','rain','none','embers','snow','petals','none','petals',
+                 'rain','fog','none','storm','rain','ash','snow'];
+const wx = [];            // reused particle pool, seeded on first use
+function weatherInit(){
+  wx.length = 0;
+  for (let i=0;i<70;i++) wx.push({ x:rnd(-20,W+20), y:rnd(-20,H+20),
+                                   v:rnd(0.4,1.6), s:rnd(0,TAU), r:rnd(0.5,1.8) });
+}
+let boltT = 0;
+function drawWeather(scroll){
+  const kind = WEATHER[game.level % WEATHER.length];
+  if (kind === 'none') return;
+  if (!wx.length) weatherInit();
+  const sx = (scroll || 0) * 0.5;
+  if (kind === 'rain' || kind === 'storm'){
+    ctx.strokeStyle = 'rgba(190,220,255,.55)'; ctx.lineWidth = 1;
+    for (const p of wx){
+      p.y += 4 + p.v*2.4; p.x += 1.1;
+      if (p.y > H+8){ p.y = -8; p.x = rnd(-20, W+20); }
+      const x = ((p.x - sx) % (W+40) + W+40) % (W+40) - 20;
+      ctx.beginPath(); ctx.moveTo(x, p.y); ctx.lineTo(x-2, p.y+5); ctx.stroke();
+    }
+    if (kind === 'storm'){
+      if (boltT > 0) boltT--;
+      else if (Math.random() < 0.004) boltT = 6;
+      if (boltT > 3){ ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(0,0,W,H); }
+    }
+  } else if (kind === 'snow' || kind === 'ash'){
+    ctx.fillStyle = kind === 'snow' ? 'rgba(255,255,255,.85)' : 'rgba(190,186,178,.7)';
+    for (const p of wx){
+      p.y += 0.5 + p.v*0.7; p.s += 0.03;
+      p.x += Math.sin(p.s)*0.5;
+      if (p.y > H+6){ p.y = -6; p.x = rnd(-20, W+20); }
+      const x = ((p.x - sx) % (W+40) + W+40) % (W+40) - 20;
+      ctx.fillRect(Math.round(x), Math.round(p.y), p.r > 1.2 ? 2 : 1, p.r > 1.2 ? 2 : 1);
+    }
+  } else if (kind === 'embers'){
+    for (const p of wx){
+      p.y -= 0.6 + p.v*0.8; p.s += 0.05;
+      p.x += Math.sin(p.s)*0.6;
+      if (p.y < -6){ p.y = H+6; p.x = rnd(-20, W+20); }
+      const x = ((p.x - sx) % (W+40) + W+40) % (W+40) - 20;
+      ctx.globalAlpha = 0.35 + 0.45*Math.abs(Math.sin(p.s));
+      ctx.fillStyle = p.r > 1.2 ? '#ffd23a' : '#ff8a3a';
+      ctx.fillRect(Math.round(x), Math.round(p.y), 1, 1);
+    }
+    ctx.globalAlpha = 1;
+  } else if (kind === 'petals'){
+    for (const p of wx){
+      p.y += 0.4 + p.v*0.5; p.s += 0.045;
+      p.x += Math.sin(p.s)*1.1 + 0.3;
+      if (p.y > H+6){ p.y = -6; p.x = rnd(-20, W+20); }
+      const x = ((p.x - sx) % (W+40) + W+40) % (W+40) - 20;
+      ctx.globalAlpha = .75;
+      ctx.fillStyle = p.r > 1.2 ? '#ffb8d8' : '#ff8ad0';
+      ctx.fillRect(Math.round(x), Math.round(p.y), 2, 1);
+    }
+    ctx.globalAlpha = 1;
+  } else if (kind === 'fog'){
+    for (let i=0;i<4;i++){
+      const y = 40 + i*28, off = ((T*(0.25 + i*0.12) - sx*0.3) % (W+120)) - 60;
+      ctx.globalAlpha = .13;
+      ctx.fillStyle = '#e8f0f4';
+      ctx.fillRect(off, y, 120, 12);
+      ctx.fillRect(off - (W+120), y, 120, 12);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
 const RIM_THEMES = [
   { name:'gold',     c:['#7a4a1e','#e0a338','#f6d783','#c98a2c','#5c3a12'] },
   { name:'stone',    c:['#3f4048','#8b8d96','#c3c6cf','#6a6c75','#2b2c32'] },
@@ -1165,6 +1262,7 @@ function startDrop(){
                       done:false, broke:0 });
     const aa = rnd(0,TAU), dd = rnd(10, SHAFT_R-30);
     drop.cups.push({ z:(i+1)*RING_GAP - RING_GAP*0.5, x:Math.cos(aa)*dd, y:Math.sin(aa)*dd, got:false });
+    game.lvCupsTotal++;
   }
   drop.endZ = lv.rims*RING_GAP + 200;
   drop.theme = RIM_THEMES[game.level % RIM_THEMES.length].c;
@@ -1219,7 +1317,7 @@ function updateDrop(){
     if (drop.z >= c.z){
       c.got = true;
       if (dist(drop.px, drop.py, c.x, c.y) < 32){
-        game.cups++; wallet += CUP_VALUE;
+        game.cups++; game.lvCups++; wallet += CUP_VALUE;
         Snd.sfxCoin(); spark(W/2,H/2,12,'#ffdf6e',3,26);
       }
     }
@@ -1697,6 +1795,7 @@ function drawBossAct(){
 
   drawPet(ox, oy);
   drawParticles(cam.x, cam.y);
+  drawWeather(cam.x);
   drawTopBar();
 
   const bw = 96, bx = (W-bw)/2, by = H-11;
@@ -2014,7 +2113,10 @@ function drawPick(){
     textCS(LEVELS[pick.i].name, 144, open ? '#ffffff' : '#8b93ad');
     textCS(open ? 'HOP THE ' + ANIMALS[ANIMAL_ORDER[pick.i % ANIMAL_ORDER.length]].name
                 : 'NOT UNLOCKED YET', 153, open ? '#bcd4f0' : '#ff9a9a');
-  } else textCS('SPACE TO GO BACK', 148, '#bcd4f0');
+  } else {
+    textCS('GOLD NO HIT   BLUE ALL CUPS   GREEN FAST', 144, '#bcd4f0');
+    textCS('SPACE TO GO BACK', 153, '#8fb0d8');
+  }
   if (pick.msg > 0 && (pick.msg>>2)%2) textCS('BEAT LEVEL ' + (unlocked+1) + ' FIRST', 118, '#ff6a6a');
 }
 
@@ -2036,6 +2138,7 @@ function clearItems(){
 function updateClear(){
   if (clearT === 0){
     unlocked = Math.max(unlocked, Math.min(game.level+1, LEVELS.length-1));
+    awardMedals(game.level);
     saveShop();
     clearSel = 0;
   }
@@ -2075,7 +2178,18 @@ function drawClear(){
     ctx.drawImage(IMG.coin2, ((T*0.16)|0)%4*10, 0, 10, 10, W/2-60, 83, 10, 10);
     textCS('BOSS BOUNTY  +' + (game.bounty||0), 84, '#ffdf6e');
   }
-  if (clearT > 88) textCS('HEARTS LEFT  '+game.hp, 96, '#ff8aa0');
+  if (clearT > 88){
+    const got = game.gotMedals || [];
+    for (let m=0;m<3;m++){
+      const x = W/2 - 46 + m*36, on = got.indexOf(m) >= 0;
+      const fresh = (game.newMedals||[]).indexOf(m) >= 0;
+      ctx.fillStyle = on ? ['#ffd23a','#bff0ff','#7dff9a'][m] : 'rgba(255,255,255,.16)';
+      ctx.fillRect(x+12, 96, 6, 6);
+      textS(MEDAL_NAMES[m], x - textW(MEDAL_NAMES[m])/2 + 15, 105,
+            on ? (fresh && (T>>3)%2 ? '#ffffff' : ['#ffd23a','#bff0ff','#7dff9a'][m]) : '#5c6580');
+    }
+  }
+  if (clearT > 88) textS('HEARTS  '+game.hp, 6, 96, '#ff8aa0');
   if (clearT > 100 && storageOK) textCS('PROGRESS SAVED', 118, '#7dff9a');
   if (clearT >= CLEAR_MENU_AT){
     const items = clearItems();
@@ -2150,6 +2264,8 @@ function step(){
   if (shake > 0){ shake *= 0.86; if (shake<0.3) shake=0; shakeX=rnd(-shake,shake); shakeY=rnd(-shake,shake); }
   else shakeX = shakeY = 0;
   if (flashWhite > 0) flashWhite--;
+  if (mode === 'run' || mode === 'flag' || mode === 'drop' || mode === 'landing' || mode === 'boss')
+    game.lvFrames++;
   if      (mode === 'run')     updateRun();
   else if (mode === 'flag')    updateFlag();
   else if (mode === 'drop')    updateDrop();

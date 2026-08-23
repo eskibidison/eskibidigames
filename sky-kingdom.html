@@ -569,7 +569,7 @@ let best = 0;
 try { best = parseInt(localStorage.getItem('skykingdom_best') || '0', 10) || 0; } catch(e){ best = 0; }
 function saveBest(v){ if (v > best){ best = v; try { localStorage.setItem('skykingdom_best', String(v)); } catch(e){} } }
 
-const game = { level:0, hp:MAXHEARTS, coins:0, cups:0 };
+const game = { level:0, hp:MAXHEARTS, coins:0, cups:0, bounty:0 };
 
 /* ---- the shop: ten characters, coins banked between runs ---- */
 const SKINS = [
@@ -616,6 +616,9 @@ loadShop();
 const skin = kind => IMG['skin'+equipped+'_'+kind];
 const CUP_VALUE = 5;              // a golden cup is worth five coins
 function earnCoin(){ game.coins++; wallet++; }
+function earnCoins(k){ game.coins += k; wallet += k; }
+/* a bounty for each boss, bigger the deeper you get */
+const bossBounty = lv => 12 + lv*4;
 
 function addShake(n){ shake = Math.min(9, shake + n); }
 function spark(x,y,n,col,spd,life,grav){
@@ -1006,20 +1009,84 @@ function drawFlag(){
    ACT 2 — THE DROP  (through the giant cup rims)
    ========================================================================= */
 const FOCAL = 210, NEARZ = 26, SHAFT_R = 118, RING_GAP = 150;
+
+/* Each world's rims are made of something different. Order per theme:
+   under-shadow, top face, lip highlight, inner shade, outline. */
+const RIM_THEMES = [
+  { name:'gold',     c:['#7a4a1e','#e0a338','#f6d783','#c98a2c','#5c3a12'] },
+  { name:'stone',    c:['#3f4048','#8b8d96','#c3c6cf','#6a6c75','#2b2c32'] },
+  { name:'ice',      c:['#3a6a86','#8fd0ea','#dff4ff','#5fa6c8','#28495e'] },
+  { name:'bamboo',   c:['#3d5c22','#7fae3f','#b8dc7a','#5d8a2c','#283d16'] },
+  { name:'bone',     c:['#6e6653','#ded3b4','#f6efd8','#b4a888','#4a4436'] },
+  { name:'obsidian', c:['#241f38','#5a4f7e','#8a7cb4','#3f3760','#171325'] },
+  { name:'coral',    c:['#7a3550','#d86a7e','#f5a8b4','#b04f66','#4e2033'] },
+  { name:'iron',     c:['#2f3a4a','#6d7e94','#a4b4c8','#4d5c70','#1e2530'] },
+  { name:'crimson',  c:['#5c1c26','#b23a46','#e07a80','#82242f','#3a1018'] }
+];
+
+/* How a rim's opening behaves. Later worlds mix in the livelier ones. */
+function rimTypesFor(level){
+  const pool = ['plain'];
+  if (level >= 1) pool.push('drift');
+  if (level >= 3) pool.push('orbit');
+  if (level >= 5) pool.push('twin');
+  if (level >= 7) pool.push('pulse');
+  if (level >= 9) pool.push('orbit', 'twin');   // weight the busy ones later on
+  return pool;
+}
+
+/* Where the opening(s) actually are this frame, in shaft coordinates. */
+function rimHoles(r){
+  if (r.kind === 'twin'){
+    const a = r.spin ? r.ang + T*r.spin : r.ang;
+    const dx = Math.cos(a)*r.sep, dy = Math.sin(a)*r.sep;
+    return [{ x:r.hx+dx, y:r.hy+dy, r:r.hr }, { x:r.hx-dx, y:r.hy-dy, r:r.hr }];
+  }
+  if (r.kind === 'orbit'){
+    const a = r.ang + T*r.spin;
+    return [{ x:Math.cos(a)*r.orb, y:Math.sin(a)*r.orb, r:r.hr }];
+  }
+  if (r.kind === 'drift'){
+    return [{ x:r.hx + Math.sin(T*r.spin + r.ang)*r.amp, y:r.hy, r:r.hr }];
+  }
+  if (r.kind === 'pulse'){
+    return [{ x:r.hx, y:r.hy, r:r.hr * (1 + Math.sin(T*r.spin + r.ang)*0.30) }];
+  }
+  return [{ x:r.hx, y:r.hy, r:r.hr }];
+}
 const drop = {};
 function startDrop(){
   const lv = L();
   drop.px = 0; drop.py = 0; drop.vx = 0; drop.vy = 0;
   drop.z = 0; drop.speed = 2.0;
   drop.rings = []; drop.cups = []; drop.clouds = [];
+  const pool = rimTypesFor(game.level);
   for (let i=0;i<lv.rims;i++){
-    const hr = Math.max(38, 56 - i*1.6);
+    let hr = Math.max(38, 56 - i*1.6);
     const a = rnd(0,TAU), d = rnd(0, SHAFT_R - hr - 16);
-    drop.rings.push({ z:(i+1)*RING_GAP, hx:Math.cos(a)*d, hy:Math.sin(a)*d, hr, done:false, broke:0 });
+    /* the first rim of a level is always a plain one, to read the pattern */
+    const kind = i === 0 ? 'plain' : pool[(Math.random()*pool.length)|0];
+    if (kind === 'twin') hr *= 0.80;             // two smaller mouths
+    const sep = kind === 'twin' ? rnd(34, 52) : 0;
+    const orb = kind === 'orbit' ? clamp(SHAFT_R - hr - 20, 18, 62) : 0;
+    const amp = kind === 'drift' ? rnd(20, 40) : 0;
+    const spin = kind === 'orbit' ? rnd(0.012, 0.026) * (Math.random()<0.5?-1:1)
+               : kind === 'drift' ? rnd(0.020, 0.038)
+               : kind === 'pulse' ? rnd(0.030, 0.050)
+               : kind === 'twin'  ? (Math.random()<0.45 ? rnd(0.006,0.014)*(Math.random()<0.5?-1:1) : 0)
+               : 0;
+    /* keep a drifting or twin mouth inside the shaft */
+    let hx = Math.cos(a)*d, hy = Math.sin(a)*d;
+    const room = SHAFT_R - hr - 14;
+    if (kind === 'drift'){ hx = clamp(hx, -(room-amp), room-amp); hy = clamp(hy, -room, room); }
+    if (kind === 'twin'){  const rr = room - sep; hx = clamp(hx, -rr, rr); hy = clamp(hy, -rr, rr); }
+    drop.rings.push({ z:(i+1)*RING_GAP, hx, hy, hr, kind, ang:a, sep, orb, amp, spin,
+                      done:false, broke:0 });
     const aa = rnd(0,TAU), dd = rnd(10, SHAFT_R-30);
     drop.cups.push({ z:(i+1)*RING_GAP - RING_GAP*0.5, x:Math.cos(aa)*dd, y:Math.sin(aa)*dd, got:false });
   }
   drop.endZ = lv.rims*RING_GAP + 200;
+  drop.theme = RIM_THEMES[game.level % RIM_THEMES.length].c;
   for (let i=0;i<24;i++) drop.clouds.push({ x:rnd(-200,200), y:rnd(-140,140), z:rnd(40,1900), r:rnd(16,44) });
   mode = 'drop';
   particles = [];
@@ -1049,14 +1116,18 @@ function updateDrop(){
     if (r.done){ if (r.broke>0) r.broke--; continue; }
     if (drop.z >= r.z){
       r.done = true;
-      if (dist(drop.px, drop.py, r.hx, r.hy) < r.hr - 7){
+      const holes = rimHoles(r);
+      if (holes.some(h => dist(drop.px, drop.py, h.x, h.y) < h.r - 7)){
         Snd.sfxCoin(); spark(W/2, H/2, 10, '#ffe9a8', 3, 20);
       } else {
         r.broke = 22;
         drop.speed = Math.max(1.6, drop.speed - 1.1);
         addShake(7); Snd.sfxHurt(); hurt();
         spark(W/2, H/2, 18, '#ffd0a0', 4, 26);
-        const a = Math.atan2(r.hy-drop.py, r.hx-drop.px);
+        /* shove toward whichever mouth was closest */
+        let near = holes[0], nd = 1e9;
+        for (const h of holes){ const d2 = dist(drop.px, drop.py, h.x, h.y); if (d2 < nd){ nd = d2; near = h; } }
+        const a = Math.atan2(near.y-drop.py, near.x-drop.px);
         drop.vx += Math.cos(a)*2.6; drop.vy += Math.sin(a)*2.6;
         if (mode !== 'drop') return;
       }
@@ -1076,11 +1147,19 @@ function updateDrop(){
 }
 
 function ring(cx, cy, R, hx, hy, HR, col){
-  if (R <= HR) return;
+  ringMulti(cx, cy, R, [{x:hx, y:hy, r:HR}], col);
+}
+/* an annulus with any number of openings punched out of it */
+function ringMulti(cx, cy, R, holes, col, holeScale){
+  if (R <= 0) return;
   ctx.fillStyle = col;
   ctx.beginPath();
   ctx.moveTo(cx+R, cy); ctx.arc(cx, cy, R, 0, TAU);
-  ctx.moveTo(hx+HR, hy); ctx.arc(hx, hy, HR, 0, TAU);
+  for (const h of holes){
+    const hr = h.r * (holeScale === undefined ? 1 : holeScale);
+    if (hr <= 0) continue;
+    ctx.moveTo(h.x+hr, h.y); ctx.arc(h.x, h.y, hr, 0, TAU);
+  }
   ctx.fill('evenodd');
 }
 function shadeCol(near, far, t){
@@ -1118,24 +1197,29 @@ function drawDrop(){
   const list = drop.rings.map(r => ({ r, dz:r.z - drop.z }))
                          .filter(o => o.dz > -30 && o.dz < 1250)
                          .sort((a,b) => b.dz - a.dz);
+  const th = drop.theme || RIM_THEMES[0].c;
   for (const o of list){
     const r = o.r, dz = Math.max(o.dz,-30), s = projScale(dz);
     const cx = W/2 - drop.px*s, cy = H/2 - drop.py*s;
-    const hx = W/2 + (r.hx - drop.px)*s, hy = H/2 + (r.hy - drop.py)*s;
-    const R = SHAFT_R*s, HR = r.hr*s;
+    const R = SHAFT_R*s;
     if (R < 2) continue;
     const sh = clamp(1 - dz/1250, 0, 1), broke = r.broke > 0;
-    ring(cx, cy+Math.max(1,3*s*0.35), R, hx, hy+Math.max(1,3*s*0.35), HR, shadeCol('#7a4a1e','#3a2410', sh));
-    ring(cx, cy, R, hx, hy, HR, broke ? '#ffb9b9' : shadeCol('#e0a338','#6d4a18', sh));
-    ring(cx, cy, R*0.94, hx, hy, HR*0.99, broke ? '#ffe0e0' : shadeCol('#f6d783','#8a6224', sh));
-    ring(cx, cy, R*0.80, hx, hy, HR*1.02, broke ? '#ff9d9d' : shadeCol('#c98a2c','#5b3c14', sh));
-    ctx.strokeStyle = broke ? '#fff' : shadeCol('#5c3a12','#2a1a08', sh);
+    const lift = Math.max(1, 3*s*0.35);
+    const proj = rimHoles(r).map(h => ({ x: W/2 + (h.x - drop.px)*s,
+                                         y: H/2 + (h.y - drop.py)*s,
+                                         r: h.r*s }));
+    const under = proj.map(h => ({ x:h.x, y:h.y+lift, r:h.r }));
+    ringMulti(cx, cy+lift, R, under, shadeCol(th[0], '#241a10', sh));
+    ringMulti(cx, cy, R,        proj, broke ? '#ffb9b9' : shadeCol(th[1], '#4a3414', sh));
+    ringMulti(cx, cy, R*0.94,   proj, broke ? '#ffe0e0' : shadeCol(th[2], '#6a4e1e', sh), 0.99);
+    ringMulti(cx, cy, R*0.80,   proj, broke ? '#ff9d9d' : shadeCol(th[3], '#463010', sh), 1.02);
+    ctx.strokeStyle = broke ? '#fff' : shadeCol(th[4], '#1e1408', sh);
     ctx.lineWidth = Math.max(1, 2*s);
-    ctx.beginPath(); ctx.arc(hx, hy, HR, 0, TAU); ctx.stroke();
+    for (const h of proj){ ctx.beginPath(); ctx.arc(h.x, h.y, h.r, 0, TAU); ctx.stroke(); }
     if (!r.done && o.dz < 520 && o.dz > 40){
       ctx.globalAlpha = clamp((520-o.dz)/520,0,1)*(0.55+0.45*Math.sin(T*0.16));
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(hx, hy, HR+3, 0, TAU); ctx.stroke();
+      for (const h of proj){ ctx.beginPath(); ctx.arc(h.x, h.y, h.r+3, 0, TAU); ctx.stroke(); }
       ctx.globalAlpha = 1;
     }
   }
@@ -1167,6 +1251,8 @@ function drawDrop(){
   drawTopBar();
   const left = drop.rings.filter(r => !r.done).length;
   textS('RIMS '+left, 150, 3, '#ffe9a8');
+  const nxt = drop.rings.find(r => !r.done);
+  if (nxt && nxt.kind !== 'plain') textCS(nxt.kind.toUpperCase(), 34, '#bff0ff');
 }
 
 function updateLanding(){
@@ -1262,6 +1348,8 @@ function damageBoss(hx, hy){
   spark(hx-cam.x, hy-cam.y, 14, '#bff0ff', 3.2, 24);
   if (boss.hp <= 0){
     boss.hp = 0;
+    game.bounty = bossBounty(game.level);
+    earnCoins(game.bounty);
     Snd.stop(); Snd.sfxWin(); addShake(10); flashWhite = 12;
     for (let i=0;i<40;i++) spark(hx-cam.x, hy-cam.y, 1, i%2?'#ffe9a8':'#bff0ff', 5, 60);
     mode = 'clear'; clearT = 0;
@@ -1652,8 +1740,12 @@ function drawClear(){
     if (game.level >= LEVELS.length-1) textCS('THE KINGDOM IS SAVED', 82, '#7dff9a');
     else textCS('NEXT: '+LEVELS[game.level+1].name, 82, '#ffe9a8');
   }
-  if (clearT > 88) textCS('HEARTS LEFT  '+game.hp, 100, '#ff8aa0');
-  if (clearT > 104 && storageOK) textCS('PROGRESS SAVED', 116, '#7dff9a');
+  if (clearT > 76){
+    ctx.drawImage(IMG.coin2, ((T*0.16)|0)%4*10, 0, 10, 10, W/2-58, 95, 10, 10);
+    textCS('BOSS BOUNTY  +' + (game.bounty||0), 96, '#ffdf6e');
+  }
+  if (clearT > 92) textCS('HEARTS LEFT  '+game.hp, 108, '#ff8aa0');
+  if (clearT > 108 && storageOK) textCS('PROGRESS SAVED', 122, '#7dff9a');
   if (clearT % 12 === 0) spark(rnd(40,W-40), rnd(30,110), 5, ['#ffd23a','#bff0ff','#ff8ad0'][clearT%3], 2.4, 40);
 }
 

@@ -121,6 +121,7 @@
 <script src="lib/three.min.js"></script>
 <script src="lib/GLTFLoader.js"></script>
 <script src="model-meta.js"></script>
+<script src="textures.js"></script>
 <script src="models.js"></script>
 <script src="sim.js"></script>
 <script>
@@ -147,6 +148,8 @@ var dartPool = [];
 var gunViews = new Map();
 var heldBlaster = null;
 var sunTarget;
+var missing = [];
+var failed = [];
 
 // --- loading ---------------------------------------------------------------
 
@@ -159,10 +162,37 @@ function dataUriToBuffer(uri) {
 }
 
 function loadAll(done) {
-  var loader = new THREE.GLTFLoader();
+  // Kenney's models reference their textures by relative path. Nothing serves
+  // those files, so the manager swaps each path for the bundled image. Without
+  // this the loader waits for a file that will never arrive.
+  var manager = new THREE.LoadingManager();
+  manager.setURLModifier(function (url) {
+    var key = url.replace(/^.*?(tex\/)/, '$1');
+    if (TEXTURES[key]) return TEXTURES[key];
+    if (url.indexOf('data:') !== 0) missing.push(url);
+    return url;
+  });
+
+  // Force the <img> texture path. The loader otherwise fetches its textures,
+  // and fetch is unreliable from a page opened straight off the disk; an
+  // <img> tag with a data URI works everywhere.
+  var hadImageBitmap = window.createImageBitmap;
+  window.createImageBitmap = undefined;
+
+  var loader = new THREE.GLTFLoader(manager);
   var names = Object.keys(MODELS);
   var left = names.length;
   var bar = document.querySelector('#bar i');
+
+  // If loading ever stalls, say so instead of sitting on the splash for ever.
+  var watchdog = setTimeout(function () {
+    if (left <= 0) return;
+    var note = document.querySelector('#loading .sub');
+    note.innerHTML = 'still unpacking — ' + (names.length - left) + ' of ' + names.length +
+      ' models ready.<br>' + (missing.length
+        ? 'could not find: ' + missing.slice(0, 3).join(', ')
+        : 'check the browser console for errors.');
+  }, 20000);
 
   names.forEach(function (name) {
     loader.parse(dataUriToBuffer(MODELS[name]), '', function (gltf) {
@@ -175,11 +205,13 @@ function loadAll(done) {
       templates[name] = gltf;
       left--;
       bar.style.width = Math.round((1 - left / names.length) * 100) + '%';
-      if (left === 0) done();
+      if (left === 0) { clearTimeout(watchdog); window.createImageBitmap = hadImageBitmap; done(); }
     }, function (err) {
       console.error('failed to parse', name, err);
+      failed.push(name);
       left--;
-      if (left === 0) done();
+      bar.style.width = Math.round((1 - left / names.length) * 100) + '%';
+      if (left === 0) { clearTimeout(watchdog); window.createImageBitmap = hadImageBitmap; done(); }
     });
   });
 }

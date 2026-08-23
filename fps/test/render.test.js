@@ -77,6 +77,34 @@ section('bundle');
   }
   ok('every embedded model is a valid, complete GLB');
 
+  // The bug that made the game hang on "unpacking the city": Kenney's GLB
+  // files reference textures by relative path, and nothing serves those files.
+  // Every image URI must now resolve to a texture carried in the bundle.
+  require('../textures.js');
+  const textures = globalThis.TEXTURES;
+  let imageRefs = 0;
+  for (const [name, uri] of Object.entries(blobs)) {
+    const buf = Buffer.from(uri.slice(uri.indexOf(',') + 1), 'base64');
+    const json = JSON.parse(buf.toString('utf8', 20, 20 + buf.readUInt32LE(12)));
+    for (const image of json.images || []) {
+      assert.ok(image.uri, `${name}: image is referenced by uri`);
+      imageRefs++;
+      assert.ok(image.uri.startsWith('data:') || textures[image.uri],
+        `${name}: texture "${image.uri}" is present in the bundle`);
+      assert.ok(!image.uri.includes('Textures/'),
+        `${name}: texture "${image.uri}" is not an unresolvable external path`);
+    }
+  }
+  assert.ok(imageRefs > 20, `models actually reference textures (${imageRefs})`);
+  ok(`all ${imageRefs} texture references resolve to ${Object.keys(textures).length} bundled images`);
+
+  for (const [key, uri] of Object.entries(textures)) {
+    assert.ok(uri.startsWith('data:image/png;base64,'), `${key} is a PNG data URI`);
+    const png = Buffer.from(uri.slice(uri.indexOf(',') + 1), 'base64');
+    assert.equal(png.readUInt32BE(0), 0x89504E47, `${key} has a PNG signature`);
+  }
+  ok(`all ${Object.keys(textures).length} bundled textures are valid PNGs`);
+
   const total = Object.values(blobs).reduce((n, u) => n + u.length, 0);
   assert.ok(total < 12 * 1024 * 1024, `the bundle is a sane size (${(total / 1024 / 1024).toFixed(1)}MB)`);
   ok(`bundle is ${(total / 1024 / 1024).toFixed(1)}MB of base64`);

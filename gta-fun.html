@@ -7397,7 +7397,7 @@ var DUSK_SKY = new THREE.Color(0xe8a06a);
 function syncSky() {
   var t = S.timeOfDay;
   var elevation = Math.sin((t - 0.25) * Math.PI * 2);      // -1 at midnight, 1 at noon
-  var day = Math.max(0, Math.min(1, elevation * 1.6 + 0.35));
+  var day = Math.max(0, Math.min(1, elevation * 1.5 + 0.55));
   var dusk = Math.max(0, 1 - Math.abs(elevation) * 3.2);   // brief warm band
 
   var sky = NIGHT_SKY.clone().lerp(DAY_SKY, day).lerp(DUSK_SKY, dusk * 0.55);
@@ -7446,7 +7446,9 @@ function syncCamera(dt) {
     var source = templates['civ-a'].scene.clone(true);
     var right = source.getObjectByName('arm-right') || source.getObjectByName('arm-left');
     if (right) {
-      var scale = 0.55;
+      // The arm is a character-sized limb; at anything near full size it fills
+      // half the screen. This is roughly a forearm's worth in view.
+      var scale = 0.16;
       for (var side = 0; side < 2; side++) {
         var arm = right.clone(true);
         arm.position.set(0, 0, 0);
@@ -7454,7 +7456,7 @@ function syncCamera(dt) {
         arm.scale.setScalar(scale * (side === 0 ? 1 : -1));
         var holder = new THREE.Group();
         holder.add(arm);
-        holder.position.set(side === 0 ? 0.24 : -0.24, -0.30, -0.45);
+        holder.position.set(side === 0 ? 0.20 : -0.20, -0.34, -0.42);
         holder.rotation.set(-1.15, 0, side === 0 ? 0.18 : -0.18);
         heldFists.add(holder);
       }
@@ -7479,8 +7481,8 @@ function syncCamera(dt) {
     var swing = since < 0.32 ? Math.sin((since / 0.32) * Math.PI) : 0;
     for (var f = 0; f < heldFists.children.length; f++) {
       var holder = heldFists.children[f];
-      holder.position.z = -0.45 - swing * 0.34;
-      holder.position.y = -0.30 + swing * 0.10;
+      holder.position.z = -0.42 - swing * 0.26;
+      holder.position.y = -0.34 + swing * 0.09;
       holder.rotation.x = -1.15 - swing * 0.35;
     }
   }

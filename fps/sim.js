@@ -145,8 +145,10 @@
     MAX_POLICE_CARS: 5,
     AUTO_SPRINT_AFTER: 1.1,   // keep running forward and you break into a jog
     DROP_RANGE: 1.8,
-    AUTO_DOOR_RANGE: 2.2,
-    AUTO_DOOR_FACING: 0.5,    // radians off straight-ahead that still counts
+    // Was 2.2m within 29 degrees, which meant walking into a door dead-on or
+    // nothing happened at all. Wider on both counts.
+    AUTO_DOOR_RANGE: 3.6,
+    AUTO_DOOR_FACING: 1.15,   // radians off straight-ahead that still counts
 
     JUMP_SPEED: 6.4,
     GRAVITY: 18,
@@ -164,6 +166,7 @@
     CIV_FIRE_DELAY: 1.6,
     CIV_DART_DAMAGE: 6,
     CIV_RANGE: 20,
+    CIV_TURN: 4.5,            // radians per second a person can turn
 
     DOWNED_FORGET: 140,       // how far you must get before a body is tidied away
     HIDEOUT_DECAY: 4,         // the heat drops this much faster while hidden
@@ -295,7 +298,7 @@
         }
 
         if (rnd() < 0.4) guns.push({ x: cx + 4 + rnd() * 6, z: z0 - 3, taken: false });
-        if ((i * 3 + j) % 4 === 0) {
+        if ((i * 3 + j) % 2 === 0) {
           doors.push({ kind: 'hideout', x: cx - 6, z: z0 - 1.5, facing: Math.PI });
           // A window beside the door: shoot it out and climb in that way.
           windows.push({
@@ -923,6 +926,7 @@
           model: CIVILIAN_MODELS[Math.floor(rnd() * CIVILIAN_MODELS.length)],
           hitAt: -99,
           cooldown: rnd() * 2, bob: rnd() * 6, target: null, repath: 0,
+          stuck: 0, pause: 0,
         };
         state.civilians.push(person);
         return person;
@@ -954,14 +958,28 @@
 
     function stepPerson(person, dx, dz, speed, dt) {
       var len = Math.hypot(dx, dz);
-      if (len < 0.001) return;
+      // Below about a third of a metre the direction is mostly noise, and
+      // turning to face it is what made people spin on the spot.
+      if (len < 0.35) return;
       dx /= len; dz /= len;
-      person.yaw = yawTowards(dx, dz);
+
+      // Turn towards the heading at a human rate rather than snapping to it.
+      var want = yawTowards(dx, dz);
+      var diff = ((want - person.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      person.yaw += clamp(diff, -C.CIV_TURN * dt, C.CIV_TURN * dt);
+
       person.bob += dt * speed;
       var nx = person.x + dx * speed * dt;
-      if (!blocked(nx, person.z, 0.6)) person.x = nx; else person.repath = 0;
+      var freeX = !blocked(nx, person.z, 0.6);
+      if (freeX) person.x = nx;
       var nz = person.z + dz * speed * dt;
-      if (!blocked(person.x, nz, 0.6)) person.z = nz; else person.repath = 0;
+      var freeZ = !blocked(person.x, nz, 0.6);
+      if (freeZ) person.z = nz;
+
+      // Walked into something: pick a new way, but not more than once a second
+      // or they twitch between choices every frame.
+      if (!freeX && !freeZ) person.repath = Math.min(person.repath, 0);
+      person.stuck = (!freeX && !freeZ) ? (person.stuck || 0) + dt : 0;
     }
 
     function updateCivilians(dt) {
@@ -990,7 +1008,10 @@
           if (near.d > C.CIV_RANGE * 0.7) {
             stepPerson(person, near.cop.x - person.x, near.cop.z - person.z, C.CIV_SPEED, dt);
           } else {
-            person.yaw = yawTowards(near.cop.x - person.x, near.cop.z - person.z);
+            // Holding position: turn to face them, but at a human rate.
+            var face = yawTowards(near.cop.x - person.x, near.cop.z - person.z);
+            var off = ((face - person.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+            person.yaw += clamp(off, -C.CIV_TURN * dt, C.CIV_TURN * dt);
           }
           person.cooldown -= dt;
           if (person.cooldown <= 0 && near.d < C.CIV_RANGE) {
@@ -1000,21 +1021,39 @@
           }
         } else if (trouble) {
           person.state = 'flee';
-          stepPerson(person, person.x - near.cop.x, person.z - near.cop.z, C.CIV_FLEE_SPEED, dt);
+          var awayX = person.x - near.cop.x, awayZ = person.z - near.cop.z;
+          if (Math.hypot(awayX, awayZ) < 0.5) {     // standing on top of them
+            awayX = Math.cos(person.bob);
+            awayZ = Math.sin(person.bob);
+          }
+          stepPerson(person, awayX * 4, awayZ * 4, C.CIV_FLEE_SPEED, dt);
         } else {
           person.state = 'wander';
           person.repath -= dt;
-          if (!person.target || person.repath <= 0) {
+
+          var toX = person.target ? person.target.x - person.x : 0;
+          var toZ = person.target ? person.target.z - person.z : 0;
+          var left = person.target ? Math.hypot(toX, toZ) : 0;
+
+          // Arrived, ran out of patience, or wedged: choose somewhere new. The
+          // pause afterwards is what stops them jittering between choices.
+          if (!person.target || person.repath <= 0 || left < 1.5 || person.stuck > 0.6) {
             var ang = rnd() * Math.PI * 2;
             person.target = {
-              x: clamp(person.x + Math.cos(ang) * (8 + rnd() * 18), 3, C.WORLD - 3),
-              z: clamp(person.z + Math.sin(ang) * (8 + rnd() * 18), 3, C.WORLD - 3),
+              x: clamp(person.x + Math.cos(ang) * (10 + rnd() * 18), 3, C.WORLD - 3),
+              z: clamp(person.z + Math.sin(ang) * (10 + rnd() * 18), 3, C.WORLD - 3),
             };
-            person.repath = 3 + rnd() * 4;
+            person.repath = 4 + rnd() * 5;
+            person.stuck = 0;
+            person.pause = 0.4 + rnd() * 1.2;       // stand still a moment first
           }
-          var toX = person.target.x - person.x, toZ = person.target.z - person.z;
-          if (Math.hypot(toX, toZ) < 1.2) person.repath = 0;
-          else stepPerson(person, toX, toZ, C.CIV_SPEED, dt);
+
+          if (person.pause > 0) {
+            person.pause -= dt;
+            person.state = 'idle';
+          } else if (left >= 1.5) {
+            stepPerson(person, toX, toZ, C.CIV_SPEED, dt);
+          }
         }
       }
     }
@@ -1589,8 +1628,10 @@
     function updateAutoDoors(dt, input) {
       var p = state.player;
       if (p.driving || p.soaked || state.store.open) return;
-      // Only when you are actually walking into it, and not mid-robbery.
-      if (!input.forward || p.robTarget) return;
+      // Any movement counts, not just walking straight forward: people sidle up
+      // to doors. Still nothing while you are part way through a robbery.
+      var moving = input.forward || input.back || input.left || input.right;
+      if (!moving || p.robTarget) return;
       p.doorCooldown = Math.max(0, (p.doorCooldown || 0) - dt);
       if (p.doorCooldown > 0) return;
 

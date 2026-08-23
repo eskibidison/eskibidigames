@@ -33,6 +33,27 @@ function walkTowards(g, x, z, maxFrames = 3000, stopAt = 2.0) {
   return maxFrames;
 }
 
+// A spot a few metres from a door that is not inside the building it belongs
+// to. Doors face different ways, and guessing the side put the player in a wall.
+function approachSpot(g, door, back = 5) {
+  const offsets = [[0, back], [0, -back], [back, 0], [-back, 0]];
+  for (const [dx, dz] of offsets) {
+    if (!g.blocked(door.x + dx, door.z + dz, SIM.C.PLAYER_R)) return { x: door.x + dx, z: door.z + dz };
+  }
+  return { x: door.x, z: door.z + back };
+}
+
+// Walks to the exit mat and stops the moment you are outside. Carrying on
+// walking afterwards just marches you into the next door along.
+function leaveRoom(g, exitAt, maxFrames = 2000) {
+  for (let i = 0; i < maxFrames && g.state.player.indoors; i++) {
+    const p = g.playerPos();
+    g.state.player.yaw = Math.atan2(-(exitAt.x - p.x), -(exitAt.z - p.z));
+    g.update(STEP, Object.assign(noInput(), { forward: true }));
+  }
+  return !g.state.player.indoors;
+}
+
 // True when nothing solid sits on the straight line between two points. The
 // bots walk in straight lines, so they need a target they can actually reach.
 function clearLine(g, from, to) {
@@ -230,9 +251,11 @@ section('nerf guns');
   assert.ok(s.player.hasGun && s.player.ammo > 0, 'the blaster came with darts');
   ok(`picked up a nerf blaster with ${s.player.ammo} darts`);
 
-  // Put an officer in front of us and empty the magazine at them.
+  // Put an officer in front of us and empty the magazine at them. Armed, since
+  // only the ones carrying a blaster leave one behind and that is a dice roll.
   const cop = g.spawnCop(s.player.x, s.player.z - 12);
   assert.ok(cop, 'an officer to aim at');
+  cop.armed = true;
   const copHealth = cop.health;
 
   for (let i = 0; i < 60 * 20 && cop.state !== 'sat'; i++) {
@@ -448,10 +471,14 @@ section('the bank');
   const s = g.state;
   const door = s.city.doors.filter(d => d.kind === 'bank')[0];
   assert.ok(door, 'the bank has a door');
-  walkTowards(g, door.x, door.z, 6000, SIM.C.DOOR_RANGE - 1.4);
-  assert.equal(g.interact(), 'enter-bank',
-    `the bank door lets you in (stopped ${Math.hypot(g.playerPos().x - door.x, g.playerPos().z - door.z).toFixed(1)}m away)`);
-  assert.ok(s.player.indoors, 'you are inside');
+  // The bank door opens on approach like every other door now, so walk in.
+  const from = approachSpot(g, door, SIM.C.AUTO_DOOR_RANGE + 1.6);
+  s.player.x = from.x;
+  s.player.z = from.z;
+  faceTowards(g, door.x, door.z);
+  run(g, 60, { forward: true });
+  assert.equal(s.player.indoors, 'bank',
+    `the bank door let you in (ended ${Math.hypot(g.playerPos().x - door.x, g.playerPos().z - door.z).toFixed(1)}m from it)`);
   assert.ok(!g.blocked(s.player.x, s.player.z, SIM.C.PLAYER_R), 'and not standing in a wall');
   ok('walked through the bank door and ended up inside');
 
@@ -464,9 +491,9 @@ section('the bank');
   assert.ok(s.wanted >= 4, `robbing the safe brings the whole force (${s.wanted} stars)`);
   ok(`robbed the bank safe for $${safe.cash} and ${s.wanted} stars`);
 
-  walkTowards(g, s.city.interior.exitAt.x, s.city.interior.exitAt.z, 4000, SIM.C.DOOR_RANGE - 1.0);
-  assert.equal(g.interact(), 'leave', 'and you can get back out');
-  assert.ok(!s.player.indoors, 'you are outside again');
+  // Leaving is the exit mat by the door: walk onto it.
+  assert.ok(leaveRoom(g, s.city.interior.exitAt),
+    'walking onto the mat by the door puts you back outside');
   assert.ok(Math.hypot(s.player.x - door.x, s.player.z - door.z) < 8,
     'and standing outside the bank you robbed');
   ok('left the bank through the same door');
@@ -614,13 +641,14 @@ section('hiding indoors');
   const g = SIM.createGame();
   const s = g.state;
   const den = s.city.doors.filter(d => d.kind === 'hideout')[0];
-  walkTowards(g, den.x, den.z, 6000, SIM.C.DOOR_RANGE - 1.2);
-  assert.equal(g.interact(), 'forcing', 'you start forcing the door');
-  assert.equal(s.player.indoors, false, 'and it does not open instantly');
-  run(g, Math.ceil(SIM.C.BREAK_IN_TIME * 60) + 6, { interact: true });
-  assert.equal(s.player.indoors, 'hideout', 'holding E gets you inside');
+  const from = approachSpot(g, den, SIM.C.AUTO_DOOR_RANGE + 1.6);
+  s.player.x = from.x;
+  s.player.z = from.z;
+  faceTowards(g, den.x, den.z);
+  run(g, 60, { forward: true });
+  assert.equal(s.player.indoors, 'hideout', 'walking at the door gets you inside');
   assert.ok(!g.blocked(s.player.x, s.player.z, SIM.C.PLAYER_R), 'and not stuck in a wall');
-  ok('forced a door and got inside');
+  ok('walked into a building and ended up in the back room');
 
   const health = s.player.health;
   g.hurtPlayer(40);
@@ -633,9 +661,8 @@ section('hiding indoors');
   assert.ok(s.wanted < before, `the heat drops while you hide (${before} -> ${s.wanted})`);
   ok(`hiding cooled the wanted level from ${before} to ${s.wanted}`);
 
-  walkTowards(g, s.city.hideout.exitAt.x, s.city.hideout.exitAt.z, 4000, SIM.C.DOOR_RANGE - 1.2);
-  assert.equal(g.interact(), 'leave', 'and you can come back out');
-  assert.equal(s.player.indoors, false, 'back on the street');
+  assert.ok(leaveRoom(g, s.city.hideout.exitAt),
+    'walking onto the mat puts you back on the street');
   ok('left the hideout again');
 
   const g2 = SIM.createGame();
@@ -941,8 +968,13 @@ section('levels');
   assert.ok(s.player.perks.tough, 'level three hands you Thick Skin');
   assert.ok(s.player.maxHealth > SIM.C.MAX_HEALTH,
     `which raises maximum health (${SIM.C.MAX_HEALTH} -> ${s.player.maxHealth})`);
+  // Clear the street first: the robbery above left officers shooting at us,
+  // and health cannot regenerate while you are being hit.
+  s.wanted = 0;
+  s.cops.length = 0;
+  s.darts.length = 0;
   g.hurtPlayer(30, true);
-  run(g, 60 * 30);
+  run(g, 60 * 40);
   assert.ok(s.player.health > SIM.C.MAX_HEALTH,
     `and you heal past the old ceiling (${s.player.health.toFixed(0)})`);
   ok(`Thick Skin raised health to ${s.player.maxHealth} and healing respects it`);
@@ -990,6 +1022,79 @@ section('day and night');
   assert.ok(sawNight, 'night comes round');
   assert.ok(sawDay, 'and so does daylight');
   ok(`a full day and night passes in ${SIM.C.DAY_LENGTH}s`);
+}
+
+// --- 5v. people do not spin on the spot -------------------------------------
+
+section('people move like people');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  run(g, 60 * 5);
+  assert.ok(s.civilians.length >= 5, 'people are about');
+
+  // Total turning over half a minute. Someone walking a street turns a handful
+  // of times; someone stuck in a corner spins hundreds of times.
+  const turned = new Map();
+  const last = new Map();
+  for (const person of s.civilians) last.set(person, person.yaw);
+
+  let worstStep = 0;
+  for (let i = 0; i < 60 * 30; i++) {
+    g.update(STEP, noInput());
+    for (const person of s.civilians) {
+      if (!last.has(person)) { last.set(person, person.yaw); turned.set(person, 0); continue; }
+      let step = person.yaw - last.get(person);
+      step = ((step + Math.PI * 3) % (Math.PI * 2)) - Math.PI;   // shortest way round
+      worstStep = Math.max(worstStep, Math.abs(step));
+      turned.set(person, (turned.get(person) || 0) + Math.abs(step));
+      last.set(person, person.yaw);
+    }
+  }
+
+  const rates = [...turned.values()].map(total => total / 30);   // radians per second
+  const worst = Math.max(...rates);
+  assert.ok(worstStep <= SIM.C.CIV_TURN * STEP + 0.001,
+    `nobody snaps round instantly (worst single frame ${worstStep.toFixed(3)} rad)`);
+  assert.ok(worst < 2.2,
+    `nobody spins on the spot (worst averaged ${worst.toFixed(2)} rad/s over 30s)`);
+  ok(`people turn at most ${worst.toFixed(2)} rad/s on average — no spinning`);
+
+  // And they should actually be getting somewhere, not just shuffling.
+  const before = s.civilians.map(c => ({ p: c, x: c.x, z: c.z }));
+  run(g, 60 * 10);
+  const wandered = before.filter(e => Math.hypot(e.p.x - e.x, e.p.z - e.z) > 3).length;
+  assert.ok(wandered >= Math.floor(before.length / 3),
+    `most of them are still going somewhere (${wandered} of ${before.length})`);
+  ok(`${wandered} of ${before.length} people covered real ground while walking calmly`);
+}
+
+// --- 5w. doors are not fussy ------------------------------------------------
+
+section('doors are forgiving');
+{
+  const g = SIM.createGame();
+  const doors = g.state.city.doors.filter(d => d.kind === 'hideout');
+  assert.ok(doors.length >= 15, `plenty of buildings you can get into (${doors.length})`);
+
+  // Walking at a door from an angle has to work; nobody lines up square first.
+  let opened = 0;
+  const angles = [0, 20, 40, 55, 70];
+  for (const degrees of angles) {
+    const t = SIM.createGame();
+    const door = t.state.city.doors.filter(d => d.kind === 'hideout')[0];
+    const a = (degrees * Math.PI) / 180;
+    t.state.player.x = door.x + Math.sin(a) * 5;
+    t.state.player.z = door.z - Math.cos(a) * 5;
+    faceTowards(t, door.x, door.z);
+    for (let i = 0; i < 220 && !t.state.player.indoors; i++) {
+      t.update(STEP, Object.assign(noInput(), { forward: true }));
+    }
+    if (t.state.player.indoors) opened++;
+  }
+  assert.equal(opened, angles.length,
+    `every approach angle gets you in (${opened} of ${angles.length})`);
+  ok(`doors open from every approach angle tried, up to ${angles[angles.length - 1]} degrees off`);
 }
 
 // --- 6. health --------------------------------------------------------------

@@ -49,8 +49,8 @@
     overflow: hidden; display: none; }
   #robbing i { display: block; height: 100%; width: 0; background: #ffd166; }
 
-  #hurt { position: absolute; inset: 0; box-shadow: inset 0 0 160px rgba(255,60,60,.75);
-    opacity: 0; transition: opacity .25s; }
+  #hurt { position: absolute; inset: 0; box-shadow: inset 0 0 90px rgba(220,40,40,.55);
+    opacity: 0; transition: opacity .2s; }
 
   #banner { position: absolute; left: 50%; top: 42%; transform: translateX(-50%);
     font-size: 58px; font-weight: bold; color: #ff8080; text-shadow: 0 4px 18px rgba(0,0,0,.9);
@@ -103,8 +103,9 @@
   <h1>GTA Fun</h1>
   <div class="sub">rob the town, annoy the police, do not get soaked</div>
   <div class="keys">
-    <span>move</span><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>
-    <span>look</span><span>mouse</span>
+    <span>walk / drive</span><span><kbd>W</kbd> <kbd>S</kbd> or <kbd>↑</kbd> <kbd>↓</kbd></span>
+    <span>turn and steer</span><span><kbd>←</kbd> <kbd>→</kbd></span>
+    <span>step sideways</span><span><kbd>A</kbd> <kbd>D</kbd></span>
     <span>sprint</span><span><kbd>Shift</kbd></span>
     <span>fire nerf blaster</span><span>left click</span>
     <span>everything else</span><span><kbd>E</kbd></span>
@@ -114,7 +115,7 @@
     <kbd>E</kbd> gets you in and out of cars, picks up blasters, and holds up cash
     machines, tills and the bank vault. The police fire nerf darts. Nobody dies —
     run out of health and you just sit down for a moment, keeping your money.
-    Press <kbd>Esc</kbd> to let go of the mouse.
+    The mouse never moves your view — the arrow keys do all the turning.
   </div>
 </div>
 
@@ -366,7 +367,7 @@ function carView(car) {
 function copView(cop) {
   var view = copViews.get(cop);
   if (!view) {
-    var scale = fitScale('cop', 1.85, 'h');
+    var scale = fitScale('cop', 2.35, 'h');
     var group = build('cop', scale);
     scene.add(group);
     var mixer = new THREE.AnimationMixer(group);
@@ -454,41 +455,41 @@ function init() {
 
 // --- input -------------------------------------------------------------------
 
-var input = { forward: false, back: false, left: false, right: false, sprint: false, fire: false, interact: false };
-var locked = false;
+var input = { forward: false, back: false, left: false, right: false,
+  turnLeft: false, turnRight: false, sprint: false, fire: false, interact: false };
+var started = false;
 
 function bindInput() {
   var el = renderer.domElement;
   var startScreen = document.getElementById('start');
 
-  startScreen.addEventListener('click', function () { el.requestPointerLock(); });
-  el.addEventListener('click', function () { if (!locked) el.requestPointerLock(); });
-
-  document.addEventListener('pointerlockchange', function () {
-    locked = document.pointerLockElement === el;
-    startScreen.style.display = locked ? 'none' : 'flex';
-    if (!locked) { input.forward = input.back = input.left = input.right = input.fire = false; }
+  // No pointer lock and no mouse look. Turning is on the arrow keys, which is
+  // far kinder on a trackpad, and it means the mouse never steals the view.
+  function begin() {
+    started = true;
+    startScreen.style.display = 'none';
+  }
+  startScreen.addEventListener('click', begin);
+  el.addEventListener('mousedown', function (e) {
+    if (!started) { begin(); return; }
+    if (e.button === 0) input.fire = true;
   });
-
-  document.addEventListener('mousemove', function (e) {
-    if (!locked) return;
-    game.look(e.movementX * 0.0022, e.movementY * 0.0022);
-  });
-
-  document.addEventListener('mousedown', function (e) { if (locked && e.button === 0) input.fire = true; });
   document.addEventListener('mouseup', function (e) { if (e.button === 0) input.fire = false; });
 
   document.addEventListener('keydown', function (e) {
     var k = e.key.toLowerCase();
     if (k === 'w' || k === 'arrowup') input.forward = true;
     else if (k === 's' || k === 'arrowdown') input.back = true;
-    else if (k === 'a' || k === 'arrowleft') input.left = true;
-    else if (k === 'd' || k === 'arrowright') input.right = true;
+    else if (k === 'a') input.left = true;
+    else if (k === 'd') input.right = true;
+    else if (k === 'arrowleft') input.turnLeft = true;
+    else if (k === 'arrowright') input.turnRight = true;
     else if (k === 'shift') input.sprint = true;
     else if (k === 'e') {
       if (!input.interact) game.interact();       // edge-triggered
       input.interact = true;
     }
+    if (!started) { started = true; document.getElementById('start').style.display = 'none'; }
     if (['w', 'a', 's', 'd', 'e', ' '].indexOf(k) >= 0) e.preventDefault();
   });
 
@@ -496,8 +497,10 @@ function bindInput() {
     var k = e.key.toLowerCase();
     if (k === 'w' || k === 'arrowup') input.forward = false;
     else if (k === 's' || k === 'arrowdown') input.back = false;
-    else if (k === 'a' || k === 'arrowleft') input.left = false;
-    else if (k === 'd' || k === 'arrowright') input.right = false;
+    else if (k === 'a') input.left = false;
+    else if (k === 'd') input.right = false;
+    else if (k === 'arrowleft') input.turnLeft = false;
+    else if (k === 'arrowright') input.turnRight = false;
     else if (k === 'shift') input.sprint = false;
     else if (k === 'e') input.interact = false;
   });
@@ -509,8 +512,7 @@ function syncCars() {
   for (var i = 0; i < S.cars.length; i++) {
     var car = S.cars[i];
     var view = carView(car);
-    var hidden = (car === S.player.car);
-    view.visible = !hidden;
+    view.visible = true;          // visible even when you are the one driving
     view.position.set(car.x, 0, car.z);
     view.rotation.y = car.angle + MODEL_YAW;
     if (view.userData.light) {
@@ -577,20 +579,25 @@ function syncGuns(dt) {
 function syncCamera(dt) {
   var p = S.player;
   var pos = game.playerPos();
-  var eye = p.driving ? 1.35 : C.EYE;
-  var bob = (!p.driving && (input.forward || input.back || input.left || input.right))
-    ? Math.sin(p.bob * 2.1) * 0.045 : 0;
 
-  camera.position.set(pos.x, eye + bob, pos.z);
-  camera.rotation.set(0, 0, 0, 'YXZ');
-  camera.rotation.order = 'YXZ';
-  camera.rotation.y = p.yaw;
-  camera.rotation.x = p.pitch;
-
-  // Sit the driver a little forward of the car's centre.
   if (p.driving && p.car) {
-    camera.position.x += -Math.sin(p.car.angle) * 0.5;
-    camera.position.z += -Math.cos(p.car.angle) * 0.5;
+    // Third person behind the car. Sitting inside it, you cannot see the front
+    // wings or which way the wheels are pointed, and you crash constantly.
+    var car = p.car;
+    var fx = -Math.sin(car.angle), fz = -Math.cos(car.angle);
+    var back = 8.5, lift = 3.6;
+    var want = new THREE.Vector3(car.x - fx * back, lift, car.z - fz * back);
+    camera.position.lerp(want, Math.min(1, dt * 8));
+    camera.rotation.order = 'YXZ';
+    camera.lookAt(car.x + fx * 6, 1.1, car.z + fz * 6);
+  } else {
+    var bob = (input.forward || input.back || input.left || input.right ||
+      input.turnLeft || input.turnRight) ? Math.sin(p.bob * 2.1) * 0.045 : 0;
+    camera.position.set(pos.x, C.EYE + bob, pos.z);
+    camera.rotation.set(0, 0, 0, 'YXZ');
+    camera.rotation.order = 'YXZ';
+    camera.rotation.y = p.yaw;
+    camera.rotation.x = p.pitch;
   }
 
   var sun = scene.userData.sun;
@@ -598,8 +605,8 @@ function syncCamera(dt) {
   sunTarget.position.set(pos.x, 0, pos.z);
 
   if (heldBlaster) {
-    heldBlaster.visible = p.hasGun && !p.soaked;
-    heldBlaster.position.set(0.28, -0.26 + bob * 0.5, -0.55);
+    heldBlaster.visible = p.hasGun && !p.soaked && !p.driving;
+    heldBlaster.position.set(0.20, -0.19 + bob * 0.5, -0.40);
     heldBlaster.rotation.set(0, Math.PI + 0.06, 0);
   }
 }
@@ -707,7 +714,7 @@ loadAll(function () {
   init();
   bindInput();
 
-  heldBlaster = build('blaster', fitScale('blaster', 0.42, 'd'));
+  heldBlaster = build('blaster', fitScale('blaster', 0.30, 'd'));
   heldBlaster.traverse(function (o) { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
   camera.add(heldBlaster);
   scene.add(camera);

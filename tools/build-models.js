@@ -182,22 +182,90 @@ function repackGlb(json, binChunk) {
 
 // --- glb inspection ----------------------------------------------------------
 
+// 4x4 column-major helpers, matching glTF's convention.
+function identity() {
+  return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+}
+
+function multiply(a, b) {
+  const out = new Array(16).fill(0);
+  for (let c = 0; c < 4; c++) {
+    for (let r = 0; r < 4; r++) {
+      let sum = 0;
+      for (let k = 0; k < 4; k++) sum += a[k * 4 + r] * b[c * 4 + k];
+      out[c * 4 + r] = sum;
+    }
+  }
+  return out;
+}
+
+function trs(node) {
+  if (node.matrix) return node.matrix.slice();
+  const t = node.translation || [0, 0, 0];
+  const r = node.rotation || [0, 0, 0, 1];
+  const s = node.scale || [1, 1, 1];
+  const [x, y, z, w] = r;
+  const x2 = x + x, y2 = y + y, z2 = z + z;
+  const xx = x * x2, xy = x * y2, xz = x * z2;
+  const yy = y * y2, yz = y * z2, zz = z * z2;
+  const wx = w * x2, wy = w * y2, wz = w * z2;
+  return [
+    (1 - (yy + zz)) * s[0], (xy + wz) * s[0], (xz - wy) * s[0], 0,
+    (xy - wz) * s[1], (1 - (xx + zz)) * s[1], (yz + wx) * s[1], 0,
+    (xz + wy) * s[2], (yz - wx) * s[2], (1 - (xx + yy)) * s[2], 0,
+    t[0], t[1], t[2], 1,
+  ];
+}
+
+function apply(m, p) {
+  return [
+    m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+    m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+    m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
+  ];
+}
+
 // Reads the JSON chunk of a .glb for its bounding box and animation names.
+//
+// Node transforms matter: a blocky character is six separate meshes parked at
+// different heights by their node translations. Measuring accessor min/max
+// alone reported one limb's local extent — 8 x 9 x 8 for a person — and every
+// scale derived from it was wrong, which is why officers rendered doll-sized.
 function inspect(buf) {
   const jsonLen = buf.readUInt32LE(12);
   const json = JSON.parse(buf.toString('utf8', 20, 20 + jsonLen));
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
-  for (const mesh of json.meshes || []) {
-    for (const prim of mesh.primitives) {
-      const acc = json.accessors[prim.attributes.POSITION];
-      if (!acc || !acc.min) continue;
-      for (let i = 0; i < 3; i++) {
-        min[i] = Math.min(min[i], acc.min[i]);
-        max[i] = Math.max(max[i], acc.max[i]);
+
+  const visit = (nodeIndex, parent) => {
+    const node = json.nodes[nodeIndex];
+    if (!node) return;
+    const world = multiply(parent, trs(node));
+    if (node.mesh !== undefined) {
+      for (const prim of json.meshes[node.mesh].primitives) {
+        const acc = json.accessors[prim.attributes.POSITION];
+        if (!acc || !acc.min) continue;
+        // All eight corners, so rotation is accounted for.
+        for (let corner = 0; corner < 8; corner++) {
+          const local = [
+            corner & 1 ? acc.max[0] : acc.min[0],
+            corner & 2 ? acc.max[1] : acc.min[1],
+            corner & 4 ? acc.max[2] : acc.min[2],
+          ];
+          const world3 = apply(world, local);
+          for (let i = 0; i < 3; i++) {
+            min[i] = Math.min(min[i], world3[i]);
+            max[i] = Math.max(max[i], world3[i]);
+          }
+        }
       }
     }
-  }
+    for (const child of node.children || []) visit(child, world);
+  };
+
+  const scene = json.scenes[json.scene || 0];
+  for (const root of scene.nodes) visit(root, identity());
+
   const size = [0, 1, 2].map(i => (max[i] - min[i]) || 1);
   return {
     w: round(size[0]), h: round(size[1]), d: round(size[2]),

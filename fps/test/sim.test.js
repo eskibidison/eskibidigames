@@ -251,6 +251,76 @@ section('nerf guns');
   ok('shooting at police raises the wanted level');
 }
 
+// --- 5b. turning with the arrow keys ---------------------------------------
+
+section('turning');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  const before = s.player.yaw;
+  run(g, 60, { turnLeft: true });
+  const afterLeft = s.player.yaw;
+  assert.ok(afterLeft > before, `arrow-left turns you left (${before.toFixed(2)} -> ${afterLeft.toFixed(2)})`);
+  run(g, 120, { turnRight: true });
+  assert.ok(s.player.yaw < afterLeft, 'arrow-right turns you back the other way');
+  ok('the arrow keys turn you on the spot, no mouse needed');
+
+  // Steering must work at a crawl, or you cannot pull out of a parking space.
+  const g2 = SIM.createGame();
+  const parked = g2.state.cars.filter(c => c.parked);
+  let near = parked[0], nearD = Infinity;
+  for (const c of parked) {
+    const d = Math.hypot(c.x - g2.state.player.x, c.z - g2.state.player.z);
+    if (d < nearD) { nearD = d; near = c; }
+  }
+  walkTowards(g2, near.x, near.z, 3000, SIM.C.ENTER_RANGE - 0.6);
+  g2.interact();
+  run(g2, 12, { forward: true });                 // barely rolling
+  const slow = g2.state.player.car.speed;
+  const heading = g2.state.player.car.angle;
+  run(g2, 45, { forward: true, turnLeft: true });
+  assert.ok(slow < 6, `the car really was crawling (${slow.toFixed(1)} u/s)`);
+  assert.ok(Math.abs(g2.state.player.car.angle - heading) > 0.1,
+    `it still steers at low speed (turned ${(g2.state.player.car.angle - heading).toFixed(2)} rad)`);
+  ok(`a car crawling at ${slow.toFixed(1)} u/s still steers`);
+}
+
+// --- 5c. running officers over ---------------------------------------------
+
+section('running them over');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  const parked = s.cars.filter(c => c.parked)[0];
+  s.player.driving = true;
+  s.player.car = parked;
+  parked.ai = false;
+  parked.speed = 18;
+
+  // Put the officer directly in the car's path, not just nearby.
+  const fx = -Math.sin(parked.angle), fz = -Math.cos(parked.angle);
+  const cop = g.spawnCop(parked.x + fx * 2.2, parked.z + fz * 2.2);
+  const wantedBefore = s.wanted;
+  run(g, 8, { forward: true });
+
+  assert.equal(cop.state, 'sat', 'driving into an officer knocks them down');
+  assert.ok(s.wanted > wantedBefore, `and it raises the wanted level (${wantedBefore} -> ${s.wanted})`);
+  assert.equal(s.stats.copsRunOver, 1, 'the game counted it');
+  ok(`ran an officer over: wanted went ${wantedBefore} -> ${s.wanted}`);
+
+  // More stars must mean more police cars, one per star.
+  for (const stars of [1, 3, 5]) {
+    const t = SIM.createGame();
+    t.raiseWanted(stars);
+    run(t, 60 * 60);
+    const cars = t.state.cars.filter(c => c.kind === 'police').length;
+    assert.ok(cars > 0, `${stars} stars brings at least one police car`);
+    assert.ok(cars <= stars, `${stars} stars brings at most ${stars} police cars (got ${cars})`);
+    if (stars === 5) assert.ok(cars >= 3, `five stars brings a proper convoy (got ${cars})`);
+  }
+  ok('police cars scale with the wanted level, one per star up to five');
+}
+
 // --- 6. health --------------------------------------------------------------
 
 section('health');

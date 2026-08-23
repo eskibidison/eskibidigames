@@ -49,8 +49,8 @@
     overflow: hidden; display: none; }
   #robbing i { display: block; height: 100%; width: 0; background: #ffd166; }
 
-  #hurt { position: absolute; inset: 0; box-shadow: inset 0 0 160px rgba(255,60,60,.75);
-    opacity: 0; transition: opacity .25s; }
+  #hurt { position: absolute; inset: 0; box-shadow: inset 0 0 90px rgba(220,40,40,.55);
+    opacity: 0; transition: opacity .2s; }
 
   #banner { position: absolute; left: 50%; top: 42%; transform: translateX(-50%);
     font-size: 58px; font-weight: bold; color: #ff8080; text-shadow: 0 4px 18px rgba(0,0,0,.9);
@@ -103,8 +103,9 @@
   <h1>GTA Fun</h1>
   <div class="sub">rob the town, annoy the police, do not get soaked</div>
   <div class="keys">
-    <span>move</span><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>
-    <span>look</span><span>mouse</span>
+    <span>walk / drive</span><span><kbd>W</kbd> <kbd>S</kbd> or <kbd>↑</kbd> <kbd>↓</kbd></span>
+    <span>turn and steer</span><span><kbd>←</kbd> <kbd>→</kbd></span>
+    <span>step sideways</span><span><kbd>A</kbd> <kbd>D</kbd></span>
     <span>sprint</span><span><kbd>Shift</kbd></span>
     <span>fire nerf blaster</span><span>left click</span>
     <span>everything else</span><span><kbd>E</kbd></span>
@@ -114,7 +115,7 @@
     <kbd>E</kbd> gets you in and out of cars, picks up blasters, and holds up cash
     machines, tills and the bank vault. The police fire nerf darts. Nobody dies —
     run out of health and you just sit down for a moment, keeping your money.
-    Press <kbd>Esc</kbd> to let go of the mouse.
+    The mouse never moves your view — the arrow keys do all the turning.
   </div>
 </div>
 
@@ -4095,58 +4096,58 @@
     },
     "car-sedan": {
       "w": 1.5,
-      "h": 1.45,
+      "h": 1.3,
       "d": 2.55,
       "cx": 0,
-      "cy": -0.3,
-      "cz": 0
+      "cy": 0,
+      "cz": -0.025
     },
     "car-taxi": {
       "w": 1.5,
-      "h": 1.65,
+      "h": 1.5,
       "d": 2.75,
       "cx": 0,
-      "cy": -0.3,
-      "cz": 0
+      "cy": 0,
+      "cz": -0.025
     },
     "car-van": {
       "w": 1.5,
-      "h": 1.45,
+      "h": 1.35,
       "d": 2.75,
       "cx": 0,
-      "cy": -0.3,
-      "cz": -0.125
+      "cy": 0,
+      "cz": -0.025
     },
     "car-suv": {
       "w": 1.5,
-      "h": 1.4,
-      "d": 2.55,
+      "h": 1.3,
+      "d": 2.7,
       "cx": 0,
-      "cy": -0.3,
-      "cz": 0.075
+      "cy": 0,
+      "cz": 0
     },
     "car-sports": {
       "w": 1.3,
-      "h": 1.25,
+      "h": 1.1,
       "d": 2.85,
       "cx": 0,
-      "cy": -0.3,
-      "cz": 0
+      "cy": 0,
+      "cz": -0.025
     },
     "car-police": {
       "w": 1.5,
-      "h": 1.4,
-      "d": 2.9,
+      "h": 1.3,
+      "d": 3.1,
       "cx": 0,
-      "cy": -0.3,
-      "cz": -0.075
+      "cy": 0,
+      "cz": 0
     },
     "cop": {
-      "w": 8,
-      "h": 9,
-      "d": 8,
+      "w": 1.6,
+      "h": 2.7,
+      "d": 0.8,
       "cx": 0,
-      "cy": -1,
+      "cy": 0,
       "cz": 0,
       "animations": [
         "static",
@@ -4179,11 +4180,11 @@
       ]
     },
     "civ-a": {
-      "w": 8,
-      "h": 9,
-      "d": 8,
+      "w": 1.6,
+      "h": 2.7,
+      "d": 0.8,
       "cx": 0,
-      "cy": -1,
+      "cy": 0,
       "cz": 0,
       "animations": [
         "static",
@@ -4216,11 +4217,11 @@
       ]
     },
     "civ-b": {
-      "w": 8,
-      "h": 9,
-      "d": 8,
+      "w": 1.6,
+      "h": 2.7,
+      "d": 0.8,
       "cx": 0,
-      "cy": -1,
+      "cy": 0,
       "cz": 0,
       "animations": [
         "static",
@@ -4254,27 +4255,27 @@
     },
     "blaster": {
       "w": 0.184,
-      "h": 0.421,
+      "h": 0.456,
       "d": 0.8,
       "cx": 0,
-      "cy": -0.268,
+      "cy": -0.303,
       "cz": 0.03
     },
     "atm": {
       "w": 0.43,
       "h": 0.92,
-      "d": 0.317,
+      "d": 0.292,
       "cx": 0.215,
       "cy": 0,
-      "cz": -0.123
+      "cz": -0.136
     },
     "till": {
       "w": 0.734,
       "h": 0.384,
-      "d": 0.556,
+      "d": 0.392,
       "cx": 0.357,
       "cy": 0,
-      "cz": -0.102
+      "cz": -0.184
     },
     "till-screen": {
       "w": 0.393,
@@ -4309,11 +4310,11 @@
       "cz": 0
     },
     "dumpster": {
-      "w": 0.377,
-      "h": 0.251,
+      "w": 0.275,
+      "h": 0.209,
       "d": 0.37,
-      "cx": -0.043,
-      "cy": -0.045,
+      "cx": 0.008,
+      "cy": 0,
       "cz": 0
     },
     "tree": {
@@ -4423,6 +4424,7 @@ globalThis.MODELS = {
     BLOCK: 60,
     ROAD: 18,
     WALK: 6.2,
+    TURN_SPEED: 2.5,          // arrow-key turning, for players who dislike mouselook
     SPRINT: 9.4,
     PLAYER_R: 0.6,
     EYE: 1.7,
@@ -4466,7 +4468,8 @@ globalThis.MODELS = {
     PICKUP_RANGE: 2.2,
 
     MAX_COPS: 10,
-    MAX_POLICE_CARS: 4,
+    MAX_POLICE_CARS: 5,
+    RUN_OVER_SPEED: 6,        // how fast you must be going to flatten an officer
   };
 
   C.WORLD = C.BLOCKS * C.BLOCK;
@@ -4671,7 +4674,7 @@ globalThis.MODELS = {
       wanted: 0,
       wantedDecay: 0,
       events: [],
-      stats: { robbed: 0, copsDropped: 0, carsStolen: 0, timesSoaked: 0 },
+      stats: { robbed: 0, copsDropped: 0, copsRunOver: 0, carsStolen: 0, timesSoaked: 0 },
     };
 
     // --- traffic and parked cars ---------------------------------------------
@@ -4777,6 +4780,12 @@ globalThis.MODELS = {
 
     function moveOnFoot(dt, input) {
       var p = state.player;
+
+      // Arrow left/right turn you on the spot; A and D strafe. Turning with
+      // the keyboard matters for anyone who cannot aim with a mouse yet.
+      var turn = (input.turnLeft ? 1 : 0) - (input.turnRight ? 1 : 0);
+      if (turn) p.yaw += turn * C.TURN_SPEED * dt;
+
       var fx = forwardX(p.yaw), fz = forwardZ(p.yaw);
       var rx = -fz, rz = fx;                       // right-hand vector
       var mx = 0, mz = 0;
@@ -4804,15 +4813,38 @@ globalThis.MODELS = {
       car.speed -= car.speed * C.CAR_DRAG * dt;
       car.speed = clamp(car.speed, -10, C.CAR_MAX);
 
-      var steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
-      car.angle += steer * C.CAR_TURN * (car.speed / C.CAR_MAX) * dt * 2.2;
+      var steer = ((input.left || input.turnLeft) ? 1 : 0) - ((input.right || input.turnRight) ? 1 : 0);
+      // Steering used to scale straight off speed, so a car crawling out of a
+      // parking space would not turn at all. Keep some authority at low speed,
+      // and flip it in reverse the way a real car behaves.
+      var grip = 0.45 + 0.55 * Math.min(1, Math.abs(car.speed) / C.CAR_MAX);
+      if (Math.abs(car.speed) > 0.4) {
+        car.angle += steer * C.CAR_TURN * grip * dt * (car.speed < 0 ? -1 : 1) * 2.2;
+      }
 
       var nx = car.x + forwardX(car.angle) * car.speed * dt;
       var nz = car.z + forwardZ(car.angle) * car.speed * dt;
       if (!blocked(nx, nz, C.CAR_R)) { car.x = nx; car.z = nz; }
       else { car.speed *= -0.28; }
 
+      // Running an officer over knocks them down and brings the cavalry.
+      if (Math.abs(car.speed) > C.RUN_OVER_SPEED) {
+        for (var k = 0; k < state.cops.length; k++) {
+          var hit = state.cops[k];
+          if (hit.state === 'sat') continue;
+          if (dist(car.x, car.z, hit.x, hit.z) > 2.5) continue;
+          hit.state = 'sat';
+          hit.sat = 10;
+          state.stats.copsRunOver++;
+          raiseWanted(2);
+          say('you flattened an officer — now they are really cross', 2.8);
+          city.guns.push({ x: hit.x, z: hit.z, taken: false });
+        }
+      }
+
       p.x = car.x; p.z = car.z;
+      // Aim and the chase camera follow the car, so darts go where you drive.
+      p.yaw = car.angle;
     }
 
     function updateTraffic(dt) {
@@ -4893,7 +4925,8 @@ globalThis.MODELS = {
     function spawnPoliceCar() {
       var count = 0;
       for (var i = 0; i < state.cars.length; i++) if (state.cars[i].kind === 'police') count++;
-      if (count >= C.MAX_POLICE_CARS) return;
+      // One car per star: a single unit at one star, a full five at five.
+      if (count >= Math.min(C.MAX_POLICE_CARS, state.wanted)) return;
 
       var pos = playerPos();
       // Arrive along a road, from off in the distance.
@@ -4937,9 +4970,9 @@ globalThis.MODELS = {
         }
 
         carSpawnTimer -= dt;
-        if (state.wanted >= 2 && carSpawnTimer <= 0) {
+        if (carSpawnTimer <= 0) {
           spawnPoliceCar();
-          carSpawnTimer = 9;
+          carSpawnTimer = Math.max(3, 10 - state.wanted * 1.6);
         }
       } else {
         // Everyone goes home when the heat is off.
@@ -5162,603 +5195,7 @@ globalThis.MODELS = {
         p.robTarget = null;
         state.stats.robbed++;
         raiseWanted(l.kind === 'vault' ? 3 : l.kind === 'register' ? 2 : 1);
-        say('+
-<script>
-'use strict';
-
-// GTA Fun — the renderer. This file only draws what sim.js decides; all the
-// rules live there so they can be playtested without a browser.
-//
-// Every model is Kenney CC0 art (kenney.nl), including the character
-// animations. Kenney models face +Z; the sim's yaw 0 faces -Z, which is what
-// this offset is for.
-var MODEL_YAW = Math.PI;
-
-var game = SIM.createGame();
-var S = game.state;
-var C = SIM.C;
-var META = globalThis.MODEL_META;
-
-var scene, camera, renderer, clock;
-var templates = {};
-var carViews = new Map();
-var copViews = new Map();
-var dartPool = [];
-var gunViews = new Map();
-var heldBlaster = null;
-var sunTarget;
-var missing = [];
-var failed = [];
-
-// --- loading ---------------------------------------------------------------
-
-function dataUriToBuffer(uri) {
-  var b64 = uri.slice(uri.indexOf(',') + 1);
-  var bin = atob(b64);
-  var buf = new Uint8Array(bin.length);
-  for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-  return buf.buffer;
-}
-
-function loadAll(done) {
-  // Kenney's models reference their textures by relative path. Nothing serves
-  // those files, so the manager swaps each path for the bundled image. Without
-  // this the loader waits for a file that will never arrive.
-  var manager = new THREE.LoadingManager();
-  manager.setURLModifier(function (url) {
-    var key = url.replace(/^.*?(tex\/)/, '$1');
-    if (TEXTURES[key]) return TEXTURES[key];
-    if (url.indexOf('data:') !== 0) missing.push(url);
-    return url;
-  });
-
-  // Force the <img> texture path. The loader otherwise fetches its textures,
-  // and fetch is unreliable from a page opened straight off the disk; an
-  // <img> tag with a data URI works everywhere.
-  var hadImageBitmap = window.createImageBitmap;
-  window.createImageBitmap = undefined;
-
-  var loader = new THREE.GLTFLoader(manager);
-  var names = Object.keys(MODELS);
-  var left = names.length;
-  var bar = document.querySelector('#bar i');
-
-  // If loading ever stalls, say so instead of sitting on the splash for ever.
-  var watchdog = setTimeout(function () {
-    if (left <= 0) return;
-    var note = document.querySelector('#loading .sub');
-    note.innerHTML = 'still unpacking — ' + (names.length - left) + ' of ' + names.length +
-      ' models ready.<br>' + (missing.length
-        ? 'could not find: ' + missing.slice(0, 3).join(', ')
-        : 'check the browser console for errors.');
-  }, 20000);
-
-  names.forEach(function (name) {
-    loader.parse(dataUriToBuffer(MODELS[name]), '', function (gltf) {
-      gltf.scene.traverse(function (o) {
-        if (!o.isMesh) return;
-        o.castShadow = true;
-        o.receiveShadow = true;
-        if (o.material && o.material.map) o.material.map.anisotropy = 4;
-      });
-      templates[name] = gltf;
-      left--;
-      bar.style.width = Math.round((1 - left / names.length) * 100) + '%';
-      if (left === 0) { clearTimeout(watchdog); window.createImageBitmap = hadImageBitmap; done(); }
-    }, function (err) {
-      console.error('failed to parse', name, err);
-      failed.push(name);
-      left--;
-      bar.style.width = Math.round((1 - left / names.length) * 100) + '%';
-      if (left === 0) { clearTimeout(watchdog); window.createImageBitmap = hadImageBitmap; done(); }
-    });
-  });
-}
-
-// Builds one instance of a model, re-centred so it sits on the ground at its
-// own origin, scaled to the size the sim expects.
-function build(name, scale) {
-  var t = templates[name];
-  var m = META[name];
-  if (!t || !m) return new THREE.Group();
-  var inner = t.scene.clone(true);
-  inner.scale.setScalar(scale);
-  inner.position.set(-m.cx * scale, -m.cy * scale, -m.cz * scale);
-  var wrap = new THREE.Group();
-  wrap.add(inner);
-  return wrap;
-}
-
-function fitScale(name, targetSize, axis) {
-  var m = META[name];
-  if (!m) return 1;
-  var native = axis === 'h' ? m.h : axis === 'd' ? m.d : Math.max(m.w, m.d);
-  return targetSize / native;
-}
-
-// --- world ------------------------------------------------------------------
-
-function buildWorld() {
-  // Ground: one big plane, with the road tiles laid on top of it.
-  var ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(C.WORLD + 400, C.WORLD + 400),
-    new THREE.MeshLambertMaterial({ color: 0x8e9781 })
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.set(C.WORLD / 2 - C.BLOCK / 2, -0.02, C.WORLD / 2 - C.BLOCK / 2);
-  ground.receiveShadow = true;
-  scene.add(ground);
-
-  layRoads();
-
-  for (var i = 0; i < S.city.buildings.length; i++) {
-    var b = S.city.buildings[i];
-    var mesh = build(b.model, b.scale);
-    mesh.position.set(b.x, 0, b.z);
-    mesh.rotation.y = b.rot + MODEL_YAW;
-    scene.add(mesh);
-  }
-
-  for (var p = 0; p < S.city.props.length; p++) {
-    var pr = S.city.props[p];
-    var prop = build(pr.model, fitScale(pr.model, pr.size, 'h'));
-    prop.position.set(pr.x, 0, pr.z);
-    prop.rotation.y = (pr.rot || 0) + MODEL_YAW;
-    scene.add(prop);
-  }
-
-  for (var l = 0; l < S.city.loot.length; l++) {
-    var loot = S.city.loot[l];
-    var name = loot.kind === 'atm' ? 'atm' : loot.kind === 'register' ? 'till' : 'vault';
-    var size = loot.kind === 'vault' ? 4.2 : loot.kind === 'register' ? 1.1 : 1.9;
-    var obj = build(name, fitScale(name, size, 'h'));
-    obj.position.set(loot.x, 0, loot.z);
-    obj.rotation.y = loot.facing + MODEL_YAW;
-    scene.add(obj);
-    loot.view = obj;
-
-    if (loot.kind === 'register') {
-      var screen = build('till-screen', fitScale('till-screen', 0.5, 'h'));
-      screen.position.set(loot.x, 0.75, loot.z);
-      screen.rotation.y = loot.facing + MODEL_YAW;
-      scene.add(screen);
-    }
-  }
-}
-
-// Road tiles are a single mesh each, so they go down as instanced meshes:
-// hundreds of tiles, two draw calls.
-function layRoads() {
-  var straight = firstMesh(templates['road-straight']);
-  var cross = firstMesh(templates['road-crossroad']);
-  if (!straight || !cross) return;
-
-  var tile = C.ROAD;
-  var scale = fitScale('road-straight', tile, 'w');
-  var perLine = Math.ceil((C.WORLD + C.BLOCK) / tile);
-
-  var straights = [];
-  var crosses = [];
-  for (var k = 0; k <= C.BLOCKS; k++) {
-    var line = k * C.BLOCK;
-    for (var t = 0; t < perLine; t++) {
-      var along = t * tile + tile / 2 - C.BLOCK / 2;
-      var onCrossing = Math.abs(along - Math.round(along / C.BLOCK) * C.BLOCK) < tile * 0.6;
-      if (onCrossing) {
-        if (k === 0) crosses.push([Math.round(along / C.BLOCK) * C.BLOCK, line]);
-        continue;
-      }
-      straights.push([along, line, 0]);
-      straights.push([line, along, Math.PI / 2]);
-    }
-  }
-  for (var a = 0; a <= C.BLOCKS; a++) {
-    for (var b = 0; b <= C.BLOCKS; b++) crosses.push([a * C.BLOCK, b * C.BLOCK]);
-  }
-
-  addInstanced(straight, scale, straights, true);
-  addInstanced(cross, scale, crosses.map(function (c) { return [c[0], c[1], 0]; }), true);
-}
-
-function firstMesh(gltf) {
-  if (!gltf) return null;
-  var found = null;
-  gltf.scene.traverse(function (o) { if (!found && o.isMesh) found = o; });
-  return found;
-}
-
-function addInstanced(sourceMesh, scale, placements, receive) {
-  var mesh = new THREE.InstancedMesh(sourceMesh.geometry, sourceMesh.material, placements.length);
-  mesh.receiveShadow = !!receive;
-  var dummy = new THREE.Object3D();
-  for (var i = 0; i < placements.length; i++) {
-    dummy.position.set(placements[i][0], 0, placements[i][1]);
-    dummy.rotation.set(0, placements[i][2] || 0, 0);
-    dummy.scale.setScalar(scale);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(i, dummy.matrix);
-  }
-  mesh.instanceMatrix.needsUpdate = true;
-  scene.add(mesh);
-  return mesh;
-}
-
-// --- entity views -----------------------------------------------------------
-
-function carView(car) {
-  var view = carViews.get(car);
-  if (!view) {
-    var scale = fitScale(car.model, 4.4, 'd');
-    view = build(car.model, scale);
-    scene.add(view);
-    carViews.set(car, view);
-    if (car.kind === 'police') {
-      var light = new THREE.PointLight(0x5599ff, 0, 26);
-      light.position.set(0, 2.2, 0);
-      view.add(light);
-      view.userData.light = light;
-    }
-  }
-  return view;
-}
-
-function copView(cop) {
-  var view = copViews.get(cop);
-  if (!view) {
-    var scale = fitScale('cop', 1.85, 'h');
-    var group = build('cop', scale);
-    scene.add(group);
-    var mixer = new THREE.AnimationMixer(group);
-    var clips = {};
-    templates['cop'].animations.forEach(function (clip) { clips[clip.name] = clip; });
-    view = { group: group, mixer: mixer, clips: clips, current: null };
-    copViews.set(cop, view);
-    playClip(view, 'walk');
-  }
-  return view;
-}
-
-// Kenney ships these animations with the model; nothing here is hand-authored.
-function playClip(view, name) {
-  if (view.current === name || !view.clips[name]) return;
-  var next = view.mixer.clipAction(view.clips[name]);
-  next.reset().setLoop(THREE.LoopRepeat).fadeIn(0.18).play();
-  if (view.currentAction) view.currentAction.fadeOut(0.18);
-  view.currentAction = next;
-  view.current = name;
-}
-
-function dartView(i) {
-  if (!dartPool[i]) {
-    var geo = new THREE.CylinderGeometry(0.035, 0.035, 0.3, 6);
-    geo.rotateX(Math.PI / 2);
-    var mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xff7a2f }));
-    var tip = new THREE.Mesh(
-      new THREE.SphereGeometry(0.05, 6, 5),
-      new THREE.MeshLambertMaterial({ color: 0xffe066 })
-    );
-    tip.position.z = 0.16;
-    mesh.add(tip);
-    scene.add(mesh);
-    dartPool[i] = mesh;
-  }
-  return dartPool[i];
-}
-
-// --- setup ------------------------------------------------------------------
-
-function init() {
-  scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x9fc7e8);
-  scene.fog = new THREE.Fog(0x9fc7e8, 90, 340);
-
-  camera = new THREE.PerspectiveCamera(76, innerWidth / innerHeight, 0.1, 800);
-
-  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-  renderer.setSize(innerWidth, innerHeight);
-  renderer.outputEncoding = THREE.sRGBEncoding;
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  document.body.appendChild(renderer.domElement);
-
-  scene.add(new THREE.HemisphereLight(0xcfe4ff, 0x6a6f5c, 0.95));
-
-  var sun = new THREE.DirectionalLight(0xfff3d6, 1.15);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  var reach = 70;
-  sun.shadow.camera.left = -reach;
-  sun.shadow.camera.right = reach;
-  sun.shadow.camera.top = reach;
-  sun.shadow.camera.bottom = -reach;
-  sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = 260;
-  sun.shadow.bias = -0.0012;
-  scene.add(sun);
-  sunTarget = new THREE.Object3D();
-  scene.add(sunTarget);
-  sun.target = sunTarget;
-  scene.userData.sun = sun;
-
-  buildWorld();
-
-  clock = new THREE.Clock();
-  addEventListener('resize', function () {
-    camera.aspect = innerWidth / innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight);
-  });
-}
-
-// --- input -------------------------------------------------------------------
-
-var input = { forward: false, back: false, left: false, right: false, sprint: false, fire: false, interact: false };
-var locked = false;
-
-function bindInput() {
-  var el = renderer.domElement;
-  var startScreen = document.getElementById('start');
-
-  startScreen.addEventListener('click', function () { el.requestPointerLock(); });
-  el.addEventListener('click', function () { if (!locked) el.requestPointerLock(); });
-
-  document.addEventListener('pointerlockchange', function () {
-    locked = document.pointerLockElement === el;
-    startScreen.style.display = locked ? 'none' : 'flex';
-    if (!locked) { input.forward = input.back = input.left = input.right = input.fire = false; }
-  });
-
-  document.addEventListener('mousemove', function (e) {
-    if (!locked) return;
-    game.look(e.movementX * 0.0022, e.movementY * 0.0022);
-  });
-
-  document.addEventListener('mousedown', function (e) { if (locked && e.button === 0) input.fire = true; });
-  document.addEventListener('mouseup', function (e) { if (e.button === 0) input.fire = false; });
-
-  document.addEventListener('keydown', function (e) {
-    var k = e.key.toLowerCase();
-    if (k === 'w' || k === 'arrowup') input.forward = true;
-    else if (k === 's' || k === 'arrowdown') input.back = true;
-    else if (k === 'a' || k === 'arrowleft') input.left = true;
-    else if (k === 'd' || k === 'arrowright') input.right = true;
-    else if (k === 'shift') input.sprint = true;
-    else if (k === 'e') {
-      if (!input.interact) game.interact();       // edge-triggered
-      input.interact = true;
-    }
-    if (['w', 'a', 's', 'd', 'e', ' '].indexOf(k) >= 0) e.preventDefault();
-  });
-
-  document.addEventListener('keyup', function (e) {
-    var k = e.key.toLowerCase();
-    if (k === 'w' || k === 'arrowup') input.forward = false;
-    else if (k === 's' || k === 'arrowdown') input.back = false;
-    else if (k === 'a' || k === 'arrowleft') input.left = false;
-    else if (k === 'd' || k === 'arrowright') input.right = false;
-    else if (k === 'shift') input.sprint = false;
-    else if (k === 'e') input.interact = false;
-  });
-}
-
-// --- per-frame sync -----------------------------------------------------------
-
-function syncCars() {
-  for (var i = 0; i < S.cars.length; i++) {
-    var car = S.cars[i];
-    var view = carView(car);
-    var hidden = (car === S.player.car);
-    view.visible = !hidden;
-    view.position.set(car.x, 0, car.z);
-    view.rotation.y = car.angle + MODEL_YAW;
-    if (view.userData.light) {
-      view.userData.light.intensity = 2.4 + Math.sin(S.t * 9) * 2.4;
-      view.userData.light.color.setHex(Math.sin(S.t * 4.5) > 0 ? 0x4477ff : 0xff4444);
-    }
-  }
-  carViews.forEach(function (view, car) {
-    if (S.cars.indexOf(car) === -1) { scene.remove(view); carViews.delete(car); }
-  });
-}
-
-function syncCops(dt) {
-  for (var i = 0; i < S.cops.length; i++) {
-    var cop = S.cops[i];
-    var view = copView(cop);
-    view.group.position.set(cop.x, 0, cop.z);
-
-    var pos = game.playerPos();
-    var facing = Math.atan2(-(pos.x - cop.x), -(pos.z - cop.z));
-    view.group.rotation.y = facing + MODEL_YAW;
-
-    var gap = Math.hypot(pos.x - cop.x, pos.z - cop.z);
-    if (cop.state === 'sat') playClip(view, 'sit');
-    else if (gap > C.COP_STANDOFF) playClip(view, 'walk');
-    else playClip(view, 'holding-both-shoot');
-
-    view.mixer.update(dt);
-  }
-  copViews.forEach(function (view, cop) {
-    if (S.cops.indexOf(cop) === -1) { scene.remove(view.group); copViews.delete(cop); }
-  });
-}
-
-function syncDarts() {
-  for (var i = 0; i < S.darts.length; i++) {
-    var d = S.darts[i];
-    var mesh = dartView(i);
-    mesh.visible = true;
-    mesh.position.set(d.x, d.y, d.z);
-    mesh.lookAt(d.x + d.vx, d.y + d.vy, d.z + d.vz);
-  }
-  for (var j = S.darts.length; j < dartPool.length; j++) dartPool[j].visible = false;
-}
-
-function syncGuns(dt) {
-  for (var i = 0; i < S.city.guns.length; i++) {
-    var g = S.city.guns[i];
-    var view = gunViews.get(g);
-    if (g.taken) {
-      if (view) { scene.remove(view); gunViews.delete(g); }
-      continue;
-    }
-    if (!view) {
-      view = build('blaster', fitScale('blaster', 0.75, 'd'));
-      scene.add(view);
-      gunViews.set(g, view);
-    }
-    view.position.set(g.x, 0.7 + Math.sin(S.t * 2 + g.x) * 0.08, g.z);
-    view.rotation.y += dt * 1.4;
-  }
-}
-
-function syncCamera(dt) {
-  var p = S.player;
-  var pos = game.playerPos();
-  var eye = p.driving ? 1.35 : C.EYE;
-  var bob = (!p.driving && (input.forward || input.back || input.left || input.right))
-    ? Math.sin(p.bob * 2.1) * 0.045 : 0;
-
-  camera.position.set(pos.x, eye + bob, pos.z);
-  camera.rotation.set(0, 0, 0, 'YXZ');
-  camera.rotation.order = 'YXZ';
-  camera.rotation.y = p.yaw;
-  camera.rotation.x = p.pitch;
-
-  // Sit the driver a little forward of the car's centre.
-  if (p.driving && p.car) {
-    camera.position.x += -Math.sin(p.car.angle) * 0.5;
-    camera.position.z += -Math.cos(p.car.angle) * 0.5;
-  }
-
-  var sun = scene.userData.sun;
-  sun.position.set(pos.x + 60, 110, pos.z + 40);
-  sunTarget.position.set(pos.x, 0, pos.z);
-
-  if (heldBlaster) {
-    heldBlaster.visible = p.hasGun && !p.soaked;
-    heldBlaster.position.set(0.28, -0.26 + bob * 0.5, -0.55);
-    heldBlaster.rotation.set(0, Math.PI + 0.06, 0);
-  }
-}
-
-// --- HUD ----------------------------------------------------------------------
-
-var ui = {
-  health: document.getElementById('health-fill'),
-  healthText: document.getElementById('health-text'),
-  ammo: document.getElementById('ammo'),
-  money: document.getElementById('money'),
-  stars: document.getElementById('stars'),
-  events: document.getElementById('events'),
-  prompt: document.getElementById('prompt'),
-  robbing: document.getElementById('robbing'),
-  robbingFill: document.querySelector('#robbing i'),
-  hurt: document.getElementById('hurt'),
-  banner: document.getElementById('banner'),
-};
-
-var lastHealth = 100;
-
-function syncHud() {
-  var p = S.player;
-
-  ui.health.style.width = Math.max(0, p.health) + '%';
-  ui.healthText.textContent = 'HEALTH ' + Math.ceil(Math.max(0, p.health));
-  ui.money.textContent = '$' + p.money.toLocaleString('en-GB');
-  ui.ammo.innerHTML = p.hasGun
-    ? p.ammo + ' <small>darts</small>'
-    : '<small>no blaster — find one and press E</small>';
-
-  var stars = '';
-  for (var i = 0; i < C.MAX_WANTED; i++) {
-    stars += '<span class="star' + (i < S.wanted ? ' on' : '') + '">★</span>';
-  }
-  ui.stars.innerHTML = stars;
-
-  var html = '';
-  for (var e = 0; e < S.events.length; e++) html += '<div>' + S.events[e].text + '</div>';
-  ui.events.innerHTML = html;
-
-  if (p.robTarget && p.robbing > 0) {
-    ui.robbing.style.display = 'block';
-    ui.robbingFill.style.width = Math.min(100, (p.robbing / C.ROB_TIME) * 100) + '%';
-  } else {
-    ui.robbing.style.display = 'none';
-  }
-
-  ui.prompt.innerHTML = promptText();
-
-  if (p.health < lastHealth - 0.5) {
-    ui.hurt.style.opacity = '1';
-    setTimeout(function () { ui.hurt.style.opacity = '0'; }, 90);
-  }
-  lastHealth = p.health;
-
-  ui.banner.style.display = p.soaked ? 'block' : 'none';
-}
-
-// Tells the player what E would do from where they are standing.
-function promptText() {
-  var p = S.player;
-  if (p.soaked) return '';
-  if (p.robbing > 0) return 'hold <b>E</b>…';
-  if (p.driving) return '<b>E</b> get out';
-
-  var gun = game.nearestGun();
-  if (gun.gun && gun.d < C.PICKUP_RANGE) return '<b>E</b> pick up nerf blaster';
-
-  var loot = game.nearestLoot();
-  if (loot.loot && loot.d < C.ROB_RANGE) {
-    var label = loot.loot.kind === 'atm' ? 'cash machine'
-      : loot.loot.kind === 'register' ? 'till' : 'bank vault';
-    if (loot.loot.cool > 0) return 'the ' + label + ' is empty (' + Math.ceil(loot.loot.cool) + 's)';
-    return '<b>E</b> hold up the ' + label + ' — $' + loot.loot.cash;
-  }
-
-  var car = game.nearestCar();
-  if (car.car && car.d < C.ENTER_RANGE) {
-    return '<b>E</b> take the ' + (car.car.kind === 'police' ? 'police car' : 'car');
-  }
-  return '';
-}
-
-// --- loop ----------------------------------------------------------------------
-
-function frame() {
-  requestAnimationFrame(frame);
-  var dt = Math.min(clock.getDelta(), 0.1);
-
-  game.update(dt, input);
-
-  syncCars();
-  syncCops(dt);
-  syncDarts();
-  syncGuns(dt);
-  syncCamera(dt);
-  syncHud();
-
-  renderer.render(scene, camera);
-}
-
-loadAll(function () {
-  init();
-  bindInput();
-
-  heldBlaster = build('blaster', fitScale('blaster', 0.42, 'd'));
-  heldBlaster.traverse(function (o) { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
-  camera.add(heldBlaster);
-  scene.add(camera);
-
-  document.getElementById('loading').style.display = 'none';
-  document.getElementById('start').style.display = 'flex';
-  frame();
-});
-</script>
-</body>
-</html>
- + l.cash + ' from the ' + labelFor(l.kind), 2.6);
+        say('+$' + l.cash + ' from the ' + labelFor(l.kind), 2.6);
       }
     }
 
@@ -6086,7 +5523,7 @@ function carView(car) {
 function copView(cop) {
   var view = copViews.get(cop);
   if (!view) {
-    var scale = fitScale('cop', 1.85, 'h');
+    var scale = fitScale('cop', 2.35, 'h');
     var group = build('cop', scale);
     scene.add(group);
     var mixer = new THREE.AnimationMixer(group);
@@ -6174,41 +5611,41 @@ function init() {
 
 // --- input -------------------------------------------------------------------
 
-var input = { forward: false, back: false, left: false, right: false, sprint: false, fire: false, interact: false };
-var locked = false;
+var input = { forward: false, back: false, left: false, right: false,
+  turnLeft: false, turnRight: false, sprint: false, fire: false, interact: false };
+var started = false;
 
 function bindInput() {
   var el = renderer.domElement;
   var startScreen = document.getElementById('start');
 
-  startScreen.addEventListener('click', function () { el.requestPointerLock(); });
-  el.addEventListener('click', function () { if (!locked) el.requestPointerLock(); });
-
-  document.addEventListener('pointerlockchange', function () {
-    locked = document.pointerLockElement === el;
-    startScreen.style.display = locked ? 'none' : 'flex';
-    if (!locked) { input.forward = input.back = input.left = input.right = input.fire = false; }
+  // No pointer lock and no mouse look. Turning is on the arrow keys, which is
+  // far kinder on a trackpad, and it means the mouse never steals the view.
+  function begin() {
+    started = true;
+    startScreen.style.display = 'none';
+  }
+  startScreen.addEventListener('click', begin);
+  el.addEventListener('mousedown', function (e) {
+    if (!started) { begin(); return; }
+    if (e.button === 0) input.fire = true;
   });
-
-  document.addEventListener('mousemove', function (e) {
-    if (!locked) return;
-    game.look(e.movementX * 0.0022, e.movementY * 0.0022);
-  });
-
-  document.addEventListener('mousedown', function (e) { if (locked && e.button === 0) input.fire = true; });
   document.addEventListener('mouseup', function (e) { if (e.button === 0) input.fire = false; });
 
   document.addEventListener('keydown', function (e) {
     var k = e.key.toLowerCase();
     if (k === 'w' || k === 'arrowup') input.forward = true;
     else if (k === 's' || k === 'arrowdown') input.back = true;
-    else if (k === 'a' || k === 'arrowleft') input.left = true;
-    else if (k === 'd' || k === 'arrowright') input.right = true;
+    else if (k === 'a') input.left = true;
+    else if (k === 'd') input.right = true;
+    else if (k === 'arrowleft') input.turnLeft = true;
+    else if (k === 'arrowright') input.turnRight = true;
     else if (k === 'shift') input.sprint = true;
     else if (k === 'e') {
       if (!input.interact) game.interact();       // edge-triggered
       input.interact = true;
     }
+    if (!started) { started = true; document.getElementById('start').style.display = 'none'; }
     if (['w', 'a', 's', 'd', 'e', ' '].indexOf(k) >= 0) e.preventDefault();
   });
 
@@ -6216,8 +5653,10 @@ function bindInput() {
     var k = e.key.toLowerCase();
     if (k === 'w' || k === 'arrowup') input.forward = false;
     else if (k === 's' || k === 'arrowdown') input.back = false;
-    else if (k === 'a' || k === 'arrowleft') input.left = false;
-    else if (k === 'd' || k === 'arrowright') input.right = false;
+    else if (k === 'a') input.left = false;
+    else if (k === 'd') input.right = false;
+    else if (k === 'arrowleft') input.turnLeft = false;
+    else if (k === 'arrowright') input.turnRight = false;
     else if (k === 'shift') input.sprint = false;
     else if (k === 'e') input.interact = false;
   });
@@ -6229,8 +5668,7 @@ function syncCars() {
   for (var i = 0; i < S.cars.length; i++) {
     var car = S.cars[i];
     var view = carView(car);
-    var hidden = (car === S.player.car);
-    view.visible = !hidden;
+    view.visible = true;          // visible even when you are the one driving
     view.position.set(car.x, 0, car.z);
     view.rotation.y = car.angle + MODEL_YAW;
     if (view.userData.light) {
@@ -6297,20 +5735,25 @@ function syncGuns(dt) {
 function syncCamera(dt) {
   var p = S.player;
   var pos = game.playerPos();
-  var eye = p.driving ? 1.35 : C.EYE;
-  var bob = (!p.driving && (input.forward || input.back || input.left || input.right))
-    ? Math.sin(p.bob * 2.1) * 0.045 : 0;
 
-  camera.position.set(pos.x, eye + bob, pos.z);
-  camera.rotation.set(0, 0, 0, 'YXZ');
-  camera.rotation.order = 'YXZ';
-  camera.rotation.y = p.yaw;
-  camera.rotation.x = p.pitch;
-
-  // Sit the driver a little forward of the car's centre.
   if (p.driving && p.car) {
-    camera.position.x += -Math.sin(p.car.angle) * 0.5;
-    camera.position.z += -Math.cos(p.car.angle) * 0.5;
+    // Third person behind the car. Sitting inside it, you cannot see the front
+    // wings or which way the wheels are pointed, and you crash constantly.
+    var car = p.car;
+    var fx = -Math.sin(car.angle), fz = -Math.cos(car.angle);
+    var back = 8.5, lift = 3.6;
+    var want = new THREE.Vector3(car.x - fx * back, lift, car.z - fz * back);
+    camera.position.lerp(want, Math.min(1, dt * 8));
+    camera.rotation.order = 'YXZ';
+    camera.lookAt(car.x + fx * 6, 1.1, car.z + fz * 6);
+  } else {
+    var bob = (input.forward || input.back || input.left || input.right ||
+      input.turnLeft || input.turnRight) ? Math.sin(p.bob * 2.1) * 0.045 : 0;
+    camera.position.set(pos.x, C.EYE + bob, pos.z);
+    camera.rotation.set(0, 0, 0, 'YXZ');
+    camera.rotation.order = 'YXZ';
+    camera.rotation.y = p.yaw;
+    camera.rotation.x = p.pitch;
   }
 
   var sun = scene.userData.sun;
@@ -6318,8 +5761,8 @@ function syncCamera(dt) {
   sunTarget.position.set(pos.x, 0, pos.z);
 
   if (heldBlaster) {
-    heldBlaster.visible = p.hasGun && !p.soaked;
-    heldBlaster.position.set(0.28, -0.26 + bob * 0.5, -0.55);
+    heldBlaster.visible = p.hasGun && !p.soaked && !p.driving;
+    heldBlaster.position.set(0.20, -0.19 + bob * 0.5, -0.40);
     heldBlaster.rotation.set(0, Math.PI + 0.06, 0);
   }
 }
@@ -6427,7 +5870,7 @@ loadAll(function () {
   init();
   bindInput();
 
-  heldBlaster = build('blaster', fitScale('blaster', 0.42, 'd'));
+  heldBlaster = build('blaster', fitScale('blaster', 0.30, 'd'));
   heldBlaster.traverse(function (o) { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
   camera.add(heldBlaster);
   scene.add(camera);

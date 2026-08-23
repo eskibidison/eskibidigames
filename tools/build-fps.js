@@ -19,7 +19,12 @@ for (const [tag, src] of tags) {
   const code = fs.readFileSync(file, 'utf8')
     // A literal </script> inside a string would close the tag early.
     .replace(/<\/script>/gi, '<\\/script>');
-  html = html.replace(tag, `<script>\n/* ${src} */\n${code}\n</script>`);
+  const block = `<script>\n/* ${src} */\n${code}\n</script>`;
+  // The replacement MUST be a function. As a string, $' and $& are special:
+  // sim.js contains say('+$' + ...), and that $' spliced the whole rest of the
+  // document into the middle of the script, closing the tag early and dumping
+  // the remaining JavaScript onto the page as text.
+  html = html.replace(tag, () => block);
   console.log(`  inlined ${src.padEnd(22)} ${(fs.statSync(file).size / 1024).toFixed(0)}KB`);
 }
 

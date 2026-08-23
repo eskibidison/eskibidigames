@@ -31,6 +31,7 @@
     BLOCK: 60,
     ROAD: 18,
     WALK: 6.2,
+    TURN_SPEED: 2.5,          // arrow-key turning, for players who dislike mouselook
     SPRINT: 9.4,
     PLAYER_R: 0.6,
     EYE: 1.7,
@@ -74,7 +75,8 @@
     PICKUP_RANGE: 2.2,
 
     MAX_COPS: 10,
-    MAX_POLICE_CARS: 4,
+    MAX_POLICE_CARS: 5,
+    RUN_OVER_SPEED: 6,        // how fast you must be going to flatten an officer
   };
 
   C.WORLD = C.BLOCKS * C.BLOCK;
@@ -279,7 +281,7 @@
       wanted: 0,
       wantedDecay: 0,
       events: [],
-      stats: { robbed: 0, copsDropped: 0, carsStolen: 0, timesSoaked: 0 },
+      stats: { robbed: 0, copsDropped: 0, copsRunOver: 0, carsStolen: 0, timesSoaked: 0 },
     };
 
     // --- traffic and parked cars ---------------------------------------------
@@ -385,6 +387,12 @@
 
     function moveOnFoot(dt, input) {
       var p = state.player;
+
+      // Arrow left/right turn you on the spot; A and D strafe. Turning with
+      // the keyboard matters for anyone who cannot aim with a mouse yet.
+      var turn = (input.turnLeft ? 1 : 0) - (input.turnRight ? 1 : 0);
+      if (turn) p.yaw += turn * C.TURN_SPEED * dt;
+
       var fx = forwardX(p.yaw), fz = forwardZ(p.yaw);
       var rx = -fz, rz = fx;                       // right-hand vector
       var mx = 0, mz = 0;
@@ -412,15 +420,38 @@
       car.speed -= car.speed * C.CAR_DRAG * dt;
       car.speed = clamp(car.speed, -10, C.CAR_MAX);
 
-      var steer = (input.left ? 1 : 0) - (input.right ? 1 : 0);
-      car.angle += steer * C.CAR_TURN * (car.speed / C.CAR_MAX) * dt * 2.2;
+      var steer = ((input.left || input.turnLeft) ? 1 : 0) - ((input.right || input.turnRight) ? 1 : 0);
+      // Steering used to scale straight off speed, so a car crawling out of a
+      // parking space would not turn at all. Keep some authority at low speed,
+      // and flip it in reverse the way a real car behaves.
+      var grip = 0.45 + 0.55 * Math.min(1, Math.abs(car.speed) / C.CAR_MAX);
+      if (Math.abs(car.speed) > 0.4) {
+        car.angle += steer * C.CAR_TURN * grip * dt * (car.speed < 0 ? -1 : 1) * 2.2;
+      }
 
       var nx = car.x + forwardX(car.angle) * car.speed * dt;
       var nz = car.z + forwardZ(car.angle) * car.speed * dt;
       if (!blocked(nx, nz, C.CAR_R)) { car.x = nx; car.z = nz; }
       else { car.speed *= -0.28; }
 
+      // Running an officer over knocks them down and brings the cavalry.
+      if (Math.abs(car.speed) > C.RUN_OVER_SPEED) {
+        for (var k = 0; k < state.cops.length; k++) {
+          var hit = state.cops[k];
+          if (hit.state === 'sat') continue;
+          if (dist(car.x, car.z, hit.x, hit.z) > 2.5) continue;
+          hit.state = 'sat';
+          hit.sat = 10;
+          state.stats.copsRunOver++;
+          raiseWanted(2);
+          say('you flattened an officer — now they are really cross', 2.8);
+          city.guns.push({ x: hit.x, z: hit.z, taken: false });
+        }
+      }
+
       p.x = car.x; p.z = car.z;
+      // Aim and the chase camera follow the car, so darts go where you drive.
+      p.yaw = car.angle;
     }
 
     function updateTraffic(dt) {
@@ -501,7 +532,8 @@
     function spawnPoliceCar() {
       var count = 0;
       for (var i = 0; i < state.cars.length; i++) if (state.cars[i].kind === 'police') count++;
-      if (count >= C.MAX_POLICE_CARS) return;
+      // One car per star: a single unit at one star, a full five at five.
+      if (count >= Math.min(C.MAX_POLICE_CARS, state.wanted)) return;
 
       var pos = playerPos();
       // Arrive along a road, from off in the distance.
@@ -545,9 +577,9 @@
         }
 
         carSpawnTimer -= dt;
-        if (state.wanted >= 2 && carSpawnTimer <= 0) {
+        if (carSpawnTimer <= 0) {
           spawnPoliceCar();
-          carSpawnTimer = 9;
+          carSpawnTimer = Math.max(3, 10 - state.wanted * 1.6);
         }
       } else {
         // Everyone goes home when the heat is off.

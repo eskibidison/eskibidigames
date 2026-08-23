@@ -116,6 +116,24 @@ section('bundle');
     }
   }
   ok('characters ship with the walk, idle, sit and shoot animations the game uses');
+
+  // Bounds must account for node transforms. Measuring accessor min/max alone
+  // reported a character as 8 x 9 x 8 — one limb's local extent — and officers
+  // rendered doll-sized because every scale was derived from that number.
+  for (const who of ['cop', 'civ-a', 'civ-b']) {
+    const m = meta[who];
+    assert.ok(m.h > m.d * 2, `${who} is much taller than it is deep (${m.h} vs ${m.d})`);
+    assert.ok(m.h > m.w, `${who} is taller than it is wide (${m.h} vs ${m.w})`);
+  }
+  ok(`characters measure like people: ${meta.cop.w} x ${meta.cop.h} x ${meta.cop.d}`);
+
+  // A car should be clearly longer than it is tall, for the same reason.
+  for (const car of ['car-police', 'car-sedan', 'car-van']) {
+    const m = meta[car];
+    assert.ok(m.d > m.h, `${car} is longer than it is tall (${m.d} vs ${m.h})`);
+    assert.ok(m.d > m.w, `${car} is longer than it is wide (${m.d} vs ${m.w})`);
+  }
+  ok(`vehicles measure like cars: ${meta['car-police'].w} x ${meta['car-police'].h} x ${meta['car-police'].d}`);
 }
 
 console.log(`\n${passed} checks passed`);

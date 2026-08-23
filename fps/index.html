@@ -36,6 +36,19 @@
   .star { opacity: .2; }
   .star.on { opacity: 1; filter: drop-shadow(0 0 6px rgba(255,209,102,.8)); }
 
+  #bag { position: absolute; left: 50%; top: 14px; transform: translateX(-50%);
+    display: flex; gap: 8px; align-items: stretch; }
+  #bag .slot { background: rgba(10,13,20,.66); border: 2px solid rgba(255,255,255,.10);
+    border-radius: 10px; padding: 6px 12px; min-width: 92px; text-align: center; }
+  #bag .slot.on { border-color: #ffd166; background: rgba(40,34,14,.8); }
+  #bag .n { font-size: 19px; font-weight: bold; }
+  #bag .t { font-size: 11px; color: #9aa3bd; letter-spacing: .3px; }
+
+  #rank { margin-top: 6px; font-size: 15px; color: #c9d0e6; }
+  #xpbar { width: 190px; height: 7px; margin-left: auto; margin-top: 4px;
+    background: rgba(255,255,255,.14); border-radius: 5px; overflow: hidden; }
+  #xpbar i { display: block; height: 100%; width: 0; background: #7ee0ff; }
+
   #events { position: absolute; left: 50%; bottom: 130px; transform: translateX(-50%);
     text-align: center; font-size: 19px; text-shadow: 0 2px 6px rgba(0,0,0,.9); }
   #events div { margin: 3px 0; }
@@ -109,7 +122,10 @@
   <div class="panel" id="right">
     <div id="money">$0</div>
     <div id="stars"></div>
+    <div id="rank">LEVEL 1</div>
+    <div id="xpbar"><i></i></div>
   </div>
+  <div id="bag"></div>
   <div id="events"></div>
   <div id="prompt"></div>
   <div id="robbing"><i></i></div>
@@ -437,6 +453,9 @@ function buildLabels() {
     var name = loot.kind === 'atm' ? 'CASH MACHINE' : loot.kind === 'register' ? 'TILL' : 'SAFE';
     addLabel(name, loot.x, loot.kind === 'safe' ? 3.0 : 2.3, loot.z, '#7ee0ff', 1.15, 26);
   }
+  for (var ch = 0; ch < S.city.chests.length; ch++) {
+    addLabel('CRATE', S.city.chests[ch].x, 1.9, S.city.chests[ch].z, '#ffe066', 1.05, 22);
+  }
   for (var wl = 0; wl < S.city.windows.length; wl++) {
     addLabel('WINDOW', S.city.windows[wl].x, 3.4, S.city.windows[wl].z, '#9ad8ff', 1.15, 26);
   }
@@ -707,7 +726,9 @@ function init() {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   document.body.appendChild(renderer.domElement);
 
-  scene.add(new THREE.HemisphereLight(0xcfe4ff, 0x6a6f5c, 0.95));
+  var hemi = new THREE.HemisphereLight(0xcfe4ff, 0x6a6f5c, 0.95);
+  scene.add(hemi);
+  scene.userData.hemi = hemi;
 
   var sun = new THREE.DirectionalLight(0xfff3d6, 1.15);
   sun.castShadow = true;
@@ -861,6 +882,38 @@ function syncDarts() {
 }
 
 // Swap the glass for the broken piece once it has been shot out.
+var chestViews = new Map();
+
+// Crates use Kenney's own open animation when you loot them.
+function syncChests(dt) {
+  for (var i = 0; i < S.city.chests.length; i++) {
+    var box = S.city.chests[i];
+    var view = chestViews.get(box);
+    if (!view) {
+      var group = build('crate', fitScale('crate', 1.0, 'h'));
+      group.position.set(box.x, 0, box.z);
+      group.rotation.y = (box.rot || 0) + MODEL_YAW;
+      scene.add(group);
+      var mixer = new THREE.AnimationMixer(group);
+      var clips = {};
+      templates['crate'].animations.forEach(function (clip) { clips[clip.name] = clip; });
+      view = { group: group, mixer: mixer, clips: clips, opened: false };
+      chestViews.set(box, view);
+    }
+    if (box.opened && !view.opened) {
+      view.opened = true;
+      if (view.clips['open']) {
+        var action = view.mixer.clipAction(view.clips['open']);
+        action.reset();
+        action.setLoop(THREE.LoopOnce);
+        action.clampWhenFinished = true;
+        action.play();
+      }
+    }
+    view.mixer.update(dt);
+  }
+}
+
 function syncWindows() {
   for (var i = 0; i < S.city.windows.length; i++) {
     var pane = S.city.windows[i];
@@ -890,6 +943,30 @@ function syncGuns(dt) {
   }
 }
 
+var DAY_SKY = new THREE.Color(0x9fc7e8);
+var NIGHT_SKY = new THREE.Color(0x0a1226);
+var DUSK_SKY = new THREE.Color(0xe8a06a);
+
+// A full day takes five minutes. Nights stay light enough to play in.
+function syncSky() {
+  var t = S.timeOfDay;
+  var elevation = Math.sin((t - 0.25) * Math.PI * 2);      // -1 at midnight, 1 at noon
+  var day = Math.max(0, Math.min(1, elevation * 1.6 + 0.35));
+  var dusk = Math.max(0, 1 - Math.abs(elevation) * 3.2);   // brief warm band
+
+  var sky = NIGHT_SKY.clone().lerp(DAY_SKY, day).lerp(DUSK_SKY, dusk * 0.55);
+  scene.background = sky;
+  if (scene.fog) scene.fog.color.copy(sky);
+
+  var sun = scene.userData.sun;
+  sun.intensity = 0.12 + day * 1.05;
+  sun.color.setHex(dusk > 0.35 ? 0xffc79a : 0xfff3d6);
+  scene.userData.hemi.intensity = 0.35 + day * 0.6;
+  // Keep the sun overhead-ish rather than tracking a real arc: long shadows at
+  // dusk look good but leave half the city in the dark.
+  sun.position.set(camera.position.x + 60, 40 + day * 90, camera.position.z + 40);
+}
+
 function syncCamera(dt) {
   var p = S.player;
   var pos = game.playerPos();
@@ -914,8 +991,6 @@ function syncCamera(dt) {
     camera.rotation.x = p.pitch;
   }
 
-  var sun = scene.userData.sun;
-  sun.position.set(pos.x + 60, 110, pos.z + 40);
   sunTarget.position.set(pos.x, 0, pos.z);
 
   // Fists: a real arm lifted off one of the character models, rather than
@@ -1033,6 +1108,9 @@ var ui = {
   stars: document.getElementById('stars'),
   events: document.getElementById('events'),
   kit: document.getElementById('kit'),
+  bag: document.getElementById('bag'),
+  rank: document.getElementById('rank'),
+  xp: document.querySelector('#xpbar i'),
   store: document.getElementById('store'),
   prompt: document.getElementById('prompt'),
   robbing: document.getElementById('robbing'),
@@ -1077,6 +1155,22 @@ function syncHud() {
     ui.robbing.style.display = 'none';
   }
 
+  // The bag across the top: what you are carrying, and what is in each thing.
+  var slots = game.inventory();
+  var bag = '';
+  for (var b = 0; b < slots.length; b++) {
+    var slot = slots[b];
+    bag += '<div class="slot' + (slot.active ? ' on' : '') + '">' +
+      '<div class="n">' + slot.count + '</div>' +
+      '<div class="t">' + slot.label.toUpperCase() + '</div></div>';
+  }
+  if (!slots.length) bag = '<div class="slot"><div class="n">—</div><div class="t">EMPTY HANDED</div></div>';
+  ui.bag.innerHTML = bag;
+
+  ui.rank.textContent = 'LEVEL ' + p.level;
+  var into = p.xp % C.XP_PER_LEVEL;
+  ui.xp.style.width = Math.round((into / C.XP_PER_LEVEL) * 100) + '%';
+
   ui.prompt.innerHTML = promptText();
 
   if (p.health < lastHealth - 0.5) {
@@ -1117,6 +1211,9 @@ function promptText() {
   if (p.soaked) return '';
   if (p.robbing > 0) return 'hold <b>E</b>…';
   if (p.driving) return '<b>E</b> get out';
+
+  var box = game.nearestChest();
+  if (box.chest && box.d < C.CHEST_RANGE) return '<b>E</b> open the crate';
 
   var shop = game.nearestStore();
   if (shop.store && shop.d < C.STORE_RANGE) return '<b>E</b> open the armoury';
@@ -1160,8 +1257,10 @@ function frame() {
   syncDarts();
   syncGuns(dt);
   syncWindows();
+  syncChests(dt);
   syncCamera(dt);
   syncLabels();
+  syncSky();
   syncHud();
 
   renderer.render(scene, camera);

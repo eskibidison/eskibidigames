@@ -569,8 +569,18 @@ section('bystanders');
   const s = g.state;
   run(g, 60 * 6);
   assert.ok(s.civilians.length >= 5, `people are about (${s.civilians.length})`);
-  assert.ok(s.civilians.some(c => c.brave), 'some of them are brave');
-  ok(`${s.civilians.length} people on the street, ${s.civilians.filter(c => c.brave).length} of them brave`);
+
+  // Bravery is a dice roll per person, so sample properly rather than hoping
+  // the nine standing outside happen to include one.
+  const sample = [];
+  for (let i = 0; i < 60; i++) {
+    const person = g.spawnCivilian();
+    if (person) sample.push(person.brave);
+  }
+  const braveShare = sample.filter(Boolean).length / sample.length;
+  assert.ok(braveShare > 0.05 && braveShare < 0.7,
+    `a minority of people are brave (${(braveShare * 100).toFixed(0)}% of ${sample.length})`);
+  ok(`${(braveShare * 100).toFixed(0)}% of people are the type to join in`);
 
   const start = s.civilians.map(c => ({ x: c.x, z: c.z }));
   run(g, 60 * 5);
@@ -869,6 +879,117 @@ section('a varied street');
   const seen = new Set(g.state.civilians.map(c => c.model));
   assert.ok(seen.size >= 4, `the public are not all the same person (${seen.size} kinds)`);
   ok(`saw ${seen.size} different people on the street: ${[...seen].sort().join(', ')}`);
+}
+
+// --- 5s. crates -------------------------------------------------------------
+
+section('crates');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  assert.ok(s.city.chests.length > 10, `there are crates about (${s.city.chests.length})`);
+  assert.ok(s.city.chests.some(c => c.indoors), 'and some tucked away indoors');
+
+  const box = s.city.chests.filter(c => !c.indoors)[0];
+  s.player.x = box.x;
+  s.player.z = box.z;
+  assert.equal(g.interact(), 'chest', 'walking up and pressing E opens it');
+  assert.ok(box.opened, 'the crate is open');
+  assert.ok(box.contained, `and had something in it (${box.contained})`);
+  ok(`opened a crate and found ${box.contained}`);
+
+  assert.equal(g.interact(), 'none', 'an opened crate has nothing more to give');
+  ok('a crate can only be looted once');
+
+  // Over many crates you should see a spread of contents, not one thing.
+  const found = {};
+  for (const other of s.city.chests) {
+    if (other.opened) continue;
+    g.openChest(other);
+    found[other.contained] = (found[other.contained] || 0) + 1;
+  }
+  assert.ok(Object.keys(found).length >= 2,
+    `crates hold a mix of things (${JSON.stringify(found)})`);
+  ok(`crates held a mix: ${Object.entries(found).map(([k, v]) => `${v} ${k}`).join(', ')}`);
+}
+
+// --- 5t. levels and perks ---------------------------------------------------
+
+section('levels');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  assert.equal(s.player.level, 1, 'you start at level one');
+  assert.equal(s.player.xp, 0, 'with no experience');
+
+  // Robbing should be worth experience.
+  const atm = s.city.loot.find(l => l.kind === 'atm');
+  walkTowards(g, atm.x, atm.z, 4000, SIM.C.ROB_RANGE - 0.8);
+  g.interact();
+  run(g, Math.ceil(SIM.C.ROB_TIME * 60) + 10, { interact: true });
+  assert.ok(s.player.xp > 0, `robbing earns experience (${s.player.xp})`);
+  ok(`robbing a cash machine earned ${s.player.xp} xp`);
+
+  // Levels arrive at the advertised pace and hand out their perk.
+  g.awardXp(SIM.C.XP_PER_LEVEL * 2);
+  assert.ok(s.player.level >= 3, `experience turns into levels (level ${s.player.level})`);
+  assert.ok(s.player.perks.quick, 'level two hands you Quick Fingers');
+  ok(`reached level ${s.player.level} and unlocked ${Object.keys(s.player.perks).join(', ')}`);
+
+  // Thick Skin has to actually raise your ceiling. It arrives at level three,
+  // which the awards above already passed.
+  assert.ok(s.player.perks.tough, 'level three hands you Thick Skin');
+  assert.ok(s.player.maxHealth > SIM.C.MAX_HEALTH,
+    `which raises maximum health (${SIM.C.MAX_HEALTH} -> ${s.player.maxHealth})`);
+  g.hurtPlayer(30, true);
+  run(g, 60 * 30);
+  assert.ok(s.player.health > SIM.C.MAX_HEALTH,
+    `and you heal past the old ceiling (${s.player.health.toFixed(0)})`);
+  ok(`Thick Skin raised health to ${s.player.maxHealth} and healing respects it`);
+
+  // Quick Fingers has to actually halve a robbery.
+  const timeRobbery = perk => {
+    const t = SIM.createGame();
+    if (perk) t.state.player.perks.quick = true;
+    const machine = t.state.city.loot.find(l => l.kind === 'atm');
+    t.state.player.x = machine.x;
+    t.state.player.z = machine.z + 1.5;
+    t.interact();
+    let frames = 0;
+    while (t.state.player.money === 0 && frames < 60 * 20) {
+      t.update(STEP, Object.assign(noInput(), { interact: true }));
+      frames++;
+    }
+    return frames;
+  };
+  const slow = timeRobbery(false);
+  const quick = timeRobbery(true);
+  assert.ok(quick < slow * 0.75, `Quick Fingers really is quicker (${quick} vs ${slow} frames)`);
+  ok(`Quick Fingers robs in ${quick} frames against ${slow} without it`);
+}
+
+// --- 5u. day and night ------------------------------------------------------
+
+section('day and night');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  const started = s.timeOfDay;
+  run(g, 60 * 30);
+  assert.notEqual(s.timeOfDay, started, 'time moves on');
+  assert.ok(s.timeOfDay >= 0 && s.timeOfDay < 1, 'and stays in range');
+
+  // A whole day should come round in about the advertised time.
+  let sawNight = false, sawDay = false;
+  for (let i = 0; i < 60 * SIM.C.DAY_LENGTH; i += 30) {
+    run(g, 30);
+    const noon = Math.sin((s.timeOfDay - 0.25) * Math.PI * 2);
+    if (noon < -0.6) sawNight = true;
+    if (noon > 0.6) sawDay = true;
+  }
+  assert.ok(sawNight, 'night comes round');
+  assert.ok(sawDay, 'and so does daylight');
+  ok(`a full day and night passes in ${SIM.C.DAY_LENGTH}s`);
 }
 
 // --- 6. health --------------------------------------------------------------

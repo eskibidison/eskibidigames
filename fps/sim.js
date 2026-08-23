@@ -34,6 +34,17 @@
       blurb: 'one dart, one very surprised officer' },
   ];
 
+  // Levels hand out permanent perks. Nothing to equip or manage: reach the
+  // level and it applies itself.
+  var PERKS = [
+    { level: 2, id: 'quick', name: 'Quick Fingers', blurb: 'robberies take half as long' },
+    { level: 3, id: 'tough', name: 'Thick Skin', blurb: '+40 maximum health' },
+    { level: 4, id: 'runner', name: 'Road Runner', blurb: 'you sprint noticeably faster' },
+    { level: 5, id: 'scrounger', name: 'Scrounger', blurb: 'chests and tills pay more' },
+    { level: 6, id: 'nerves', name: 'Steady Nerves', blurb: 'you take less from a dart' },
+    { level: 7, id: 'ghost', name: 'Ghost', blurb: 'the heat cools twice as fast' },
+  ];
+
   function weaponById(id) {
     for (var i = 0; i < WEAPONS.length; i++) if (WEAPONS[i].id === id) return WEAPONS[i];
     return WEAPONS[0];
@@ -97,6 +108,9 @@
     FOOT_POLICE_CARS: 1,      // cars sent while you are on foot
     FOOT_CAR_STANDOFF: 26,    // and how far back they hold
     WINDOW_HEALTH: 20,
+    CHEST_RANGE: 2.8,
+    DAY_LENGTH: 300,          // seconds for a full day and night
+    XP_PER_LEVEL: 220,
     HIT_FLASH: 0.18,           // officers stand 2.35m; give darts a fair target
     COP_SPEED: 4.6,
     COP_RANGE: 22,
@@ -201,6 +215,7 @@
     var loot = [];
     var doors = [];          // ways into interiors, not things you rob
     var windows = [];        // shoot them out for another way in
+    var chests = [];         // crates of odds and ends
     var guns = [];
     var props = [];          // pure decoration: lamps, trees, bins
     var blockInfo = [];
@@ -294,6 +309,12 @@
             x: x0 + 2 + rnd() * (inner - 4), z: z0 + inner + 2.5
           });
         }
+        if (rnd() < 0.45) {
+          chests.push({
+            x: x0 + 3 + rnd() * (inner - 6), z: z0 + inner + 2.2,
+            rot: rnd() * 6.28, opened: false,
+          });
+        }
       }
     }
 
@@ -366,6 +387,10 @@
     };
     hideout.bounds = { x0: den.x0, z0: den.z0, x1: den.x0 + den.w, z1: den.z0 + den.d };
 
+    chests.push({ x: den.x0 + 3, z: den.z0 + 3, rot: 0, opened: false, indoors: true });
+    chests.push({ x: den.x0 + 3, z: den.z0 + den.d - 3, rot: 0, opened: false, indoors: true });
+    chests.push({ x: den.x0 + den.w / 2, z: den.z0 + 2.5, rot: 0.4, opened: false, indoors: true });
+
     // Armouries: shopfronts on the pavement where you spend what you steal.
     var stores = [
       { x: C.BLOCK * 3 + 14, z: C.BLOCK * 3 - C.HALF_ROAD - 1.6, facing: Math.PI },
@@ -383,7 +408,8 @@
     return {
       boxes: boxes, buildings: buildings, loot: loot,
       guns: guns, props: props, blocks: blockInfo,
-      doors: doors, windows: windows, interior: interior, hideout: hideout, stores: stores
+      doors: doors, windows: windows, chests: chests,
+      interior: interior, hideout: hideout, stores: stores
     };
   }
 
@@ -441,6 +467,7 @@
         driving: false, car: null,
         hasGun: false, ammo: 0,
         weapon: null, owned: {}, ammoFor: {}, medkits: 0,
+        xp: 0, level: 1, perks: {}, maxHealth: C.MAX_HEALTH,
         indoors: false,
         fireCooldown: 0, hurtAt: -99, meleeAt: -99, robbing: 0, robTarget: null,
         forcing: 0, forceTarget: null,
@@ -454,9 +481,10 @@
       wanted: 0,
       wantedDecay: 0,
       events: [],
+      timeOfDay: 0.28,                    // starts mid-morning
       store: { open: false, items: storeStock(), at: null },
       stats: { robbed: 0, copsDropped: 0, copsRunOver: 0, carsStolen: 0, timesSoaked: 0,
-        brokeIn: 0, civiliansHelped: 0 },
+        brokeIn: 0, civiliansHelped: 0, chestsOpened: 0 },
     };
 
     // --- traffic and parked cars ---------------------------------------------
@@ -524,6 +552,26 @@
     function say(text, seconds) {
       state.events.push({ text: text, life: seconds || 2.4 });
       if (state.events.length > 6) state.events.shift();
+    }
+
+    function awardXp(amount, reason) {
+      var p = state.player;
+      p.xp += amount;
+      var want = Math.floor(p.xp / C.XP_PER_LEVEL) + 1;
+      while (p.level < want) {
+        p.level++;
+        say('LEVEL ' + p.level, 3);
+        for (var i = 0; i < PERKS.length; i++) {
+          if (PERKS[i].level !== p.level || p.perks[PERKS[i].id]) continue;
+          p.perks[PERKS[i].id] = true;
+          say('unlocked: ' + PERKS[i].name + ' — ' + PERKS[i].blurb, 4.5);
+          if (PERKS[i].id === 'tough') {
+            p.maxHealth = C.MAX_HEALTH + 40;
+            p.health = p.maxHealth;
+          }
+        }
+      }
+      if (reason) state.lastXp = { amount: amount, reason: reason, at: state.t };
     }
 
     function raiseWanted(n) {
@@ -598,7 +646,7 @@
         // keyboards simply will not report the third one.
         if (input.forward && !input.back) p.runTimer += dt; else p.runTimer = 0;
         var running = input.sprint || p.runTimer > C.AUTO_SPRINT_AFTER;
-        var speed = running ? C.SPRINT : C.WALK;
+        var speed = running ? (p.perks.runner ? C.SPRINT * 1.25 : C.SPRINT) : C.WALK;
         p.bob += dt * speed;
         var nx = p.x + mx * speed * dt;
         if (!blocked(nx, p.z, C.PLAYER_R)) p.x = nx;
@@ -784,7 +832,7 @@
 
       var hidden = !!p.indoors;
       if (state.wanted > 0) {
-        state.wantedDecay -= dt * (hidden ? C.HIDEOUT_DECAY : 1);
+        state.wantedDecay -= dt * (hidden ? C.HIDEOUT_DECAY : 1) * (p.perks.ghost ? 2 : 1);
         if (state.wantedDecay <= 0) {
           state.wanted--;
           state.wantedDecay = C.WANTED_DECAY;
@@ -1065,6 +1113,7 @@
       // Nobody can touch you while you are shopping or inside a building.
       if (!graceless && (p.indoors || state.store.open)) return;
       if (!graceless && state.t - p.hurtAt < C.HIT_GRACE) return;
+      if (p.perks.nerves) amount *= 0.6;
       p.health = Math.max(0, p.health - amount);
       p.hurtAt = state.t;
       if (p.health <= 0 && !p.soaked) {
@@ -1082,6 +1131,7 @@
       if (cop.health <= 0) {
         cop.state = 'sat';
         state.stats.copsDropped++;
+        awardXp(40, 'officer');
         say('officer is out of the fight', 2);
         // Only the ones who had a blaster leave one behind.
         if (cop.armed) city.guns.push({ x: cop.x, z: cop.z, taken: false });
@@ -1194,6 +1244,68 @@
       p.health = Math.min(C.MAX_HEALTH, p.health + C.MEDKIT_HEAL);
       say('patched up (+' + C.MEDKIT_HEAL + ')', 1.8);
       return true;
+    }
+
+    function nearestChest() {
+      var pos = playerPos(), best = null, bestD = Infinity;
+      var inside = !!state.player.indoors;
+      for (var i = 0; i < city.chests.length; i++) {
+        var box = city.chests[i];
+        if (box.opened || !!box.indoors !== inside) continue;
+        var d = dist(pos.x, pos.z, box.x, box.z);
+        if (d < bestD) { bestD = d; best = box; }
+      }
+      return { chest: best, d: bestD };
+    }
+
+    // Crates hold money, darts, med kits, or occasionally a blaster.
+    function openChest(box) {
+      var p = state.player;
+      box.opened = true;
+      box.openedAt = state.t;
+      state.stats.chestsOpened++;
+      awardXp(20, 'chest');
+
+      var bonus = p.perks.scrounger ? 1.8 : 1;
+      var roll = rnd();
+      if (roll < 0.45) {
+        var cash = Math.round((80 + rnd() * 220) * bonus);
+        p.money += cash;
+        say('found $' + cash + ' in the crate', 2.4);
+        box.contained = 'money';
+      } else if (roll < 0.72) {
+        var held = currentWeapon() || weaponById('blaster');
+        if (!p.owned[held.id]) giveWeapon(held.id, 0);
+        var darts = Math.round(held.mag * 0.6 * bonus);
+        p.ammoFor[held.id] = (p.ammoFor[held.id] || 0) + darts;
+        p.ammo = p.ammoFor[p.weapon] || 0;
+        say('found ' + darts + ' darts', 2.2);
+        box.contained = 'ammo';
+      } else if (roll < 0.9) {
+        p.medkits++;
+        say('found a med kit', 2.2);
+        box.contained = 'medkit';
+      } else {
+        var prize = WEAPONS[1 + Math.floor(rnd() * (WEAPONS.length - 1))];
+        giveWeapon(prize.id);
+        say('a whole ' + prize.name + ' was in there', 3);
+        box.contained = 'weapon';
+      }
+    }
+
+    // What to draw across the top of the screen.
+    function inventory() {
+      var p = state.player;
+      var slots = [];
+      for (var i = 0; i < WEAPONS.length; i++) {
+        if (!p.owned[WEAPONS[i].id]) continue;
+        slots.push({
+          kind: 'weapon', id: WEAPONS[i].id, label: WEAPONS[i].name,
+          count: p.ammoFor[WEAPONS[i].id] || 0, active: p.weapon === WEAPONS[i].id,
+        });
+      }
+      if (p.medkits > 0) slots.push({ kind: 'medkit', label: 'Med kit', count: p.medkits });
+      return slots;
     }
 
     function nearestStore() {
@@ -1318,6 +1430,12 @@
         return 'exit';
       }
 
+      var box = nearestChest();
+      if (box.chest && box.d < C.CHEST_RANGE) {
+        openChest(box.chest);
+        return 'chest';
+      }
+
       // Shop first: you stand right next to the counter to use it.
       var shop = nearestStore();
       if (shop.store && shop.d < C.STORE_RANGE) {
@@ -1364,6 +1482,7 @@
         if (found.car.kind === 'police') say('you are now driving: A POLICE CAR', 2.6);
         else say('you are now driving: A CAR', 2.2);
         state.stats.carsStolen++;
+        awardXp(15, 'car');
         // Taking someone's car in front of them is noticed.
         raiseWanted(1);
         return 'enter';
@@ -1512,13 +1631,14 @@
         return;
       }
 
-      p.robbing += dt;
+      p.robbing += dt * (p.perks.quick ? 2 : 1);
       if (p.robbing >= C.ROB_TIME) {
         p.money += l.cash;
         l.cool = C.ROB_COOLDOWN;
         p.robbing = 0;
         p.robTarget = null;
         state.stats.robbed++;
+        awardXp(l.kind === 'safe' ? 120 : l.kind === 'register' ? 55 : 30, 'robbery');
         raiseWanted(l.kind === 'safe' ? 4 : l.kind === 'vault' ? 3 : l.kind === 'register' ? 2 : 1);
         say('+$' + l.cash + ' from the ' + labelFor(l.kind), 2.6);
       }
@@ -1537,13 +1657,14 @@
       input = input || {};
       if (dt > 0.1) dt = 0.1;
       state.t += dt;
+      state.timeOfDay = (state.timeOfDay + dt / C.DAY_LENGTH) % 1;
       var p = state.player;
 
       if (p.soaked) {
         p.soakTimer -= dt;
         if (p.soakTimer <= 0) {
           p.soaked = false;
-          p.health = C.MAX_HEALTH;
+          p.health = p.maxHealth;
           p.driving = false;
           p.car = null;
           p.x = spawnX; p.z = spawnZ;
@@ -1576,8 +1697,8 @@
       updateDarts(dt);
 
       // Health comes back on its own once nobody has hit you for a while.
-      if (!p.soaked && state.t - p.hurtAt > C.REGEN_DELAY && p.health < C.MAX_HEALTH) {
-        p.health = Math.min(C.MAX_HEALTH, p.health + C.REGEN_RATE * dt);
+      if (!p.soaked && state.t - p.hurtAt > C.REGEN_DELAY && p.health < p.maxHealth) {
+        p.health = Math.min(p.maxHealth, p.health + C.REGEN_RATE * dt);
       }
 
       for (var i = 0; i < city.loot.length; i++) {
@@ -1619,6 +1740,11 @@
       useMedkit: useMedkit,
       buy: buy,
       weapons: WEAPONS,
+      perks: PERKS,
+      inventory: inventory,
+      nearestChest: nearestChest,
+      openChest: openChest,
+      awardXp: awardXp,
       playerPos: playerPos,
       spawnCop: spawnCop,
       spawnCivilian: spawnCivilian,

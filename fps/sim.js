@@ -14,6 +14,45 @@
     ? require('./model-meta.js')
     : (typeof globalThis !== 'undefined' ? globalThis.MODEL_META : null);
 
+  // Every blaster is a different Kenney model with its own feel. Prices are in
+  // the same fake money you take off cash machines.
+  var WEAPONS = [
+    { id: 'blaster', name: 'Standard Blaster', model: 'blaster',
+      damage: 14, delay: 0.22, spread: 0.012, mag: 40, pellets: 1, price: 0,
+      blurb: 'the one you find lying around' },
+    { id: 'rapid', name: 'Rapid Blaster', model: 'blaster-rapid',
+      damage: 8, delay: 0.09, spread: 0.05, mag: 90, pellets: 1, price: 400,
+      blurb: 'fires very fast, aims very badly' },
+    { id: 'scatter', name: 'Scatter Blaster', model: 'blaster-scatter',
+      damage: 9, delay: 0.65, spread: 0.14, mag: 28, pellets: 5, price: 750,
+      blurb: 'five darts at once, close range' },
+    { id: 'heavy', name: 'Heavy Blaster', model: 'blaster-heavy',
+      damage: 34, delay: 0.7, spread: 0.006, mag: 22, pellets: 1, price: 1100,
+      blurb: 'slow, heavy, sits an officer down in three' },
+    { id: 'long', name: 'Long Shot', model: 'blaster-long',
+      damage: 60, delay: 1.15, spread: 0, mag: 12, pellets: 1, price: 1600,
+      blurb: 'one dart, one very surprised officer' },
+  ];
+
+  function weaponById(id) {
+    for (var i = 0; i < WEAPONS.length; i++) if (WEAPONS[i].id === id) return WEAPONS[i];
+    return WEAPONS[0];
+  }
+
+  // What the armoury sells. Weapons come from the table above.
+  function storeStock() {
+    var items = [];
+    for (var i = 1; i < WEAPONS.length; i++) {
+      items.push({ kind: 'weapon', weapon: WEAPONS[i].id, name: WEAPONS[i].name,
+        price: WEAPONS[i].price, blurb: WEAPONS[i].blurb });
+    }
+    items.push({ kind: 'ammo', name: 'Ammo pack', price: 120,
+      blurb: 'refills the blaster you are holding' });
+    items.push({ kind: 'medkit', name: 'Med kit', price: 200,
+      blurb: 'press H to heal ' + C.MEDKIT_HEAL + ' health' });
+    return items;
+  }
+
   var BUILDING_MODELS = ['building-a', 'building-c', 'building-e', 'building-h',
     'building-k', 'building-n', 'tower-a', 'tower-c'];
   var CAR_MODELS = ['car-sedan', 'car-taxi', 'car-van', 'car-suv', 'car-sports'];
@@ -41,7 +80,7 @@
     CAR_BRAKE: 26,
     CAR_DRAG: 0.7,
     CAR_TURN: 1.7,
-    CAR_R: 1.7,
+    CAR_R: 1.3,               // was 1.7: too fat, so cars wedged on kerbs
 
     MAX_HEALTH: 100,
     REGEN_DELAY: 6,
@@ -73,6 +112,9 @@
     ROB_COOLDOWN: 45,
     ENTER_RANGE: 4.0,
     PICKUP_RANGE: 2.2,
+    STORE_RANGE: 3.6,
+    DOOR_RANGE: 3.8,
+    MEDKIT_HEAL: 50,
 
     MAX_COPS: 10,
     MAX_POLICE_CARS: 5,
@@ -105,6 +147,7 @@
     var boxes = [];          // solid AABBs: buildings and the town wall
     var buildings = [];      // placed Kenney models, with the scale to draw them at
     var loot = [];
+    var doors = [];          // ways into interiors, not things you rob
     var guns = [];
     var props = [];          // pure decoration: lamps, trees, bins
     var blockInfo = [];
@@ -133,11 +176,8 @@
 
         if (isBank) {
           var bank = place('bank', cx, cz, inner - 8, 0);
-          // The vault door sits on the street-facing wall, where you can reach it.
-          loot.push({
-            kind: 'vault', cash: 2500, cool: 0,
-            x: cx, z: cz + bank.d / 2 + 1.6, facing: 0
-          });
+          // The vault door on the street-facing wall is the way in, not loot.
+          doors.push({ kind: 'bank', x: cx, z: cz + bank.d / 2 + 1.6, facing: 0 });
           props.push({ model: 'tree', x: cx - bank.w / 2 - 4, z: cz + bank.d / 2 + 2, rot: 0, size: 6 });
           props.push({ model: 'tree', x: cx + bank.w / 2 + 4, z: cz + bank.d / 2 + 2, rot: 0, size: 6 });
           continue;
@@ -206,6 +246,45 @@
       }
     }
 
+    // The bank interior. It is a real room in the same world, parked west of
+    // town where nothing else is built, and you are teleported in and out of
+    // it through the bank's front door.
+    var room = { x0: -142, z0: 158, w: 24, d: 20, wall: 4.2 };
+    var interior = {
+      room: room,
+      spawn: { x: room.x0 + room.w - 3.5, z: room.z0 + room.d / 2 },
+      exitAt: { x: room.x0 + room.w - 1.2, z: room.z0 + room.d / 2 },
+      walls: [],
+    };
+    var T = 0.9;
+    var gapHalf = 2.4;
+    var midZ = room.z0 + room.d / 2;
+    // Three solid walls, and a fourth with a doorway gap in the middle.
+    interior.walls.push({ x0: room.x0 - T, z0: room.z0 - T, x1: room.x0, z1: room.z0 + room.d + T });
+    interior.walls.push({ x0: room.x0 - T, z0: room.z0 - T, x1: room.x0 + room.w + T, z1: room.z0 });
+    interior.walls.push({ x0: room.x0 - T, z0: room.z0 + room.d, x1: room.x0 + room.w + T, z1: room.z0 + room.d + T });
+    interior.walls.push({ x0: room.x0 + room.w, z0: room.z0 - T, x1: room.x0 + room.w + T, z1: midZ - gapHalf });
+    interior.walls.push({ x0: room.x0 + room.w, z0: midZ + gapHalf, x1: room.x0 + room.w + T, z1: room.z0 + room.d + T });
+    for (var w = 0; w < interior.walls.length; w++) boxes.push(interior.walls[w]);
+
+    // The prize, at the back of the room.
+    loot.push({
+      kind: 'safe', cash: 5200, cool: 0, indoors: true,
+      x: room.x0 + 3.5, z: midZ, facing: -Math.PI / 2,
+    });
+    // Two tills along the side wall, worth grabbing on the way past.
+    loot.push({ kind: 'register', cash: 480, cool: 0, indoors: true,
+      x: room.x0 + room.w / 2, z: room.z0 + 3, facing: Math.PI });
+    loot.push({ kind: 'register', cash: 480, cool: 0, indoors: true,
+      x: room.x0 + room.w / 2, z: room.z0 + room.d - 3, facing: 0 });
+
+    // Armouries: shopfronts on the pavement where you spend what you steal.
+    var stores = [
+      { x: C.BLOCK * 3 + 14, z: C.BLOCK * 3 - C.HALF_ROAD - 1.6, facing: Math.PI },
+      { x: C.BLOCK * 1 - C.HALF_ROAD - 1.6, z: C.BLOCK * 5, facing: Math.PI / 2 },
+      { x: C.BLOCK * 5 + 8, z: C.BLOCK * 1 + C.BLOCK - C.HALF_ROAD - 1.6, facing: 0 },
+    ];
+
     // A wall around town so nobody drives off the edge of it.
     var lo = -C.HALF_ROAD - 4, hi = C.WORLD - C.HALF_ROAD + 4;
     boxes.push({ x0: lo - 6, z0: lo - 6, x1: lo, z1: hi + 6 });
@@ -215,7 +294,8 @@
 
     return {
       boxes: boxes, buildings: buildings, loot: loot,
-      guns: guns, props: props, blocks: blockInfo
+      guns: guns, props: props, blocks: blockInfo,
+      doors: doors, interior: interior, stores: stores
     };
   }
 
@@ -272,6 +352,8 @@
         health: C.MAX_HEALTH, money: 0,
         driving: false, car: null,
         hasGun: false, ammo: 0,
+        weapon: null, owned: {}, ammoFor: {}, medkits: 0,
+        indoors: false,
         fireCooldown: 0, hurtAt: -99, robbing: 0, robTarget: null,
         soaked: false, soakTimer: 0, bob: 0
       },
@@ -281,6 +363,7 @@
       wanted: 0,
       wantedDecay: 0,
       events: [],
+      store: { open: false, items: storeStock(), at: null },
       stats: { robbed: 0, copsDropped: 0, copsRunOver: 0, carsStolen: 0, timesSoaked: 0 },
     };
 
@@ -364,8 +447,10 @@
 
     function nearestLoot() {
       var pos = playerPos(), best = null, bestD = Infinity;
+      var inside = state.player.indoors;
       for (var i = 0; i < city.loot.length; i++) {
         var l = city.loot[i];
+        if (!!l.indoors !== !!inside) continue;      // never point through a wall
         var d = dist(pos.x, pos.z, l.x, l.z);
         if (d < bestD) { bestD = d; best = l; }
       }
@@ -429,10 +514,18 @@
         car.angle += steer * C.CAR_TURN * grip * dt * (car.speed < 0 ? -1 : 1) * 2.2;
       }
 
+      // Resolve each axis on its own so a car scrapes along a wall instead of
+      // wedging on it. Bouncing off both axes at once is what made kerbs sticky.
       var nx = car.x + forwardX(car.angle) * car.speed * dt;
       var nz = car.z + forwardZ(car.angle) * car.speed * dt;
-      if (!blocked(nx, nz, C.CAR_R)) { car.x = nx; car.z = nz; }
-      else { car.speed *= -0.28; }
+      var freeX = !blocked(nx, car.z, C.CAR_R);
+      var freeZ = !blocked(car.x, nz, C.CAR_R);
+      if (freeX) car.x = nx;
+      if (freeZ) car.z = nz;
+      if (!freeX && !freeZ) car.speed *= -0.2;          // square on, bounce back
+      // A glancing scrape costs speed at a steady rate rather than a fixed cut
+      // per frame — compounded 60 times a second that stopped the car dead.
+      else if (!freeX || !freeZ) car.speed *= Math.pow(0.7, dt);
 
       // Running an officer over knocks them down and brings the cavalry.
       if (Math.abs(car.speed) > C.RUN_OVER_SPEED) {
@@ -699,31 +792,169 @@
 
     // --- actions ---------------------------------------------------------------
 
+    function currentWeapon() {
+      var p = state.player;
+      return p.weapon ? weaponById(p.weapon) : null;
+    }
+
     function tryShoot() {
       var p = state.player;
-      if (p.soaked || !p.hasGun || p.ammo <= 0 || p.fireCooldown > 0) return false;
-      p.fireCooldown = C.FIRE_DELAY;
-      p.ammo--;
+      var gun = currentWeapon();
+      if (p.soaked || state.store.open || !gun) return false;
+      if ((p.ammoFor[gun.id] || 0) <= 0 || p.fireCooldown > 0) return false;
 
-      var fx = forwardX(p.yaw) * Math.cos(p.pitch);
-      var fz = forwardZ(p.yaw) * Math.cos(p.pitch);
-      var fy = Math.sin(p.pitch);
+      p.fireCooldown = gun.delay;
+      p.ammoFor[gun.id]--;
+      p.ammo = p.ammoFor[gun.id];
+
       var pos = playerPos();
       var eye = p.driving ? 1.2 : C.EYE;
-      state.darts.push({
-        x: pos.x + fx * 0.7, y: eye + fy * 0.7, z: pos.z + fz * 0.7,
-        vx: fx * C.DART_SPEED, vy: fy * C.DART_SPEED, vz: fz * C.DART_SPEED,
-        life: C.DART_LIFE, owner: 'player', damage: C.DART_DAMAGE
-      });
+      // A scatter blaster throws several darts at once; the rest throw one.
+      for (var n = 0; n < (gun.pellets || 1); n++) {
+        var yaw = p.yaw + (rnd() - 0.5) * gun.spread * 2;
+        var pitch = p.pitch + (rnd() - 0.5) * gun.spread;
+        var fx = forwardX(yaw) * Math.cos(pitch);
+        var fz = forwardZ(yaw) * Math.cos(pitch);
+        var fy = Math.sin(pitch);
+        state.darts.push({
+          x: pos.x + fx * 0.7, y: eye + fy * 0.7, z: pos.z + fz * 0.7,
+          vx: fx * C.DART_SPEED, vy: fy * C.DART_SPEED, vz: fz * C.DART_SPEED,
+          life: C.DART_LIFE, owner: 'player', damage: gun.damage
+        });
+      }
       // Shooting at the police is, understandably, a crime.
       if (state.wanted < 1) raiseWanted(1);
       return true;
+    }
+
+    function giveWeapon(id, ammo) {
+      var p = state.player;
+      var gun = weaponById(id);
+      p.owned[gun.id] = true;
+      p.ammoFor[gun.id] = (p.ammoFor[gun.id] || 0) + (ammo == null ? gun.mag : ammo);
+      p.weapon = gun.id;
+      p.hasGun = true;
+      p.ammo = p.ammoFor[gun.id];
+      return gun;
+    }
+
+    // Cycles through the blasters you actually own.
+    function switchWeapon(step) {
+      var p = state.player;
+      var mine = [];
+      for (var i = 0; i < WEAPONS.length; i++) if (p.owned[WEAPONS[i].id]) mine.push(WEAPONS[i].id);
+      if (mine.length < 2) return false;
+      var at = mine.indexOf(p.weapon);
+      p.weapon = mine[(at + (step || 1) + mine.length) % mine.length];
+      p.ammo = p.ammoFor[p.weapon] || 0;
+      say('holding: ' + weaponById(p.weapon).name, 1.6);
+      return true;
+    }
+
+    function useMedkit() {
+      var p = state.player;
+      if (p.medkits <= 0 || p.health >= C.MAX_HEALTH || p.soaked) return false;
+      p.medkits--;
+      p.health = Math.min(C.MAX_HEALTH, p.health + C.MEDKIT_HEAL);
+      say('patched up (+' + C.MEDKIT_HEAL + ')', 1.8);
+      return true;
+    }
+
+    function nearestStore() {
+      var pos = playerPos(), best = null, bestD = Infinity;
+      for (var i = 0; i < city.stores.length; i++) {
+        var st = city.stores[i];
+        var d = dist(pos.x, pos.z, st.x, st.z);
+        if (d < bestD) { bestD = d; best = st; }
+      }
+      return { store: best, d: bestD };
+    }
+
+    // The bank's front door: outside it takes you in, inside it takes you out.
+    function nearestDoor() {
+      var pos = playerPos();
+      var p = state.player;
+      if (p.indoors) {
+        var e = city.interior.exitAt;
+        return { kind: 'out', d: dist(pos.x, pos.z, e.x, e.z) };
+      }
+      var best = null, bestD = Infinity;
+      for (var i = 0; i < city.doors.length; i++) {
+        var door = city.doors[i];
+        var d = dist(pos.x, pos.z, door.x, door.z);
+        if (d < bestD) { bestD = d; best = door; }
+      }
+      return { kind: 'in', d: bestD, at: best };
+    }
+
+    function enterBank(door) {
+      var p = state.player;
+      p.indoors = true;
+      p.returnTo = { x: door.x, z: door.z + 3 };
+      p.x = city.interior.spawn.x;
+      p.z = city.interior.spawn.z;
+      p.yaw = Math.PI / 2;                          // facing into the room
+      say('inside the bank — the safe is at the back', 3);
+    }
+
+    function leaveBank() {
+      var p = state.player;
+      p.indoors = false;
+      var back = p.returnTo || { x: spawnX, z: spawnZ };
+      p.x = back.x;
+      p.z = back.z;
+      say('back outside', 1.6);
+    }
+
+    function buy(index) {
+      var p = state.player;
+      var item = state.store.items[index];
+      if (!item) return 'none';
+      if (p.money < item.price) { say('not enough money for the ' + item.name, 2); return 'poor'; }
+
+      if (item.kind === 'weapon') {
+        if (p.owned[item.weapon]) {
+          var gun = weaponById(item.weapon);
+          p.money -= item.price;
+          p.ammoFor[gun.id] += gun.mag;
+          p.weapon = gun.id;
+          p.ammo = p.ammoFor[gun.id];
+          say('another magazine for the ' + gun.name, 2);
+          return 'ammo';
+        }
+        p.money -= item.price;
+        giveWeapon(item.weapon);
+        say('bought the ' + item.name, 2.2);
+        return 'weapon';
+      }
+      if (item.kind === 'ammo') {
+        var held = currentWeapon();
+        if (!held) { say('nothing to load — buy a blaster first', 2); return 'none'; }
+        p.money -= item.price;
+        p.ammoFor[held.id] += held.mag;
+        p.ammo = p.ammoFor[held.id];
+        say('+' + held.mag + ' darts', 1.8);
+        return 'ammo';
+      }
+      if (item.kind === 'medkit') {
+        p.money -= item.price;
+        p.medkits++;
+        say('med kit bought — press H to use it', 2.4);
+        return 'medkit';
+      }
+      return 'none';
     }
 
     // E is the only interaction key: it does whatever you are standing next to.
     function interact() {
       var p = state.player;
       if (p.soaked) return 'none';
+
+      if (state.store.open) {
+        state.store.open = false;
+        state.store.at = null;
+        return 'store-close';
+      }
 
       if (p.driving) {
         var car = p.car;
@@ -737,12 +968,26 @@
         return 'exit';
       }
 
+      // Shop first: you stand right next to the counter to use it.
+      var shop = nearestStore();
+      if (shop.store && shop.d < C.STORE_RANGE) {
+        state.store.open = !state.store.open;
+        state.store.at = state.store.open ? shop.store : null;
+        if (state.store.open) say('armoury — press a number to buy, E to leave', 3);
+        return state.store.open ? 'store' : 'store-close';
+      }
+
+      var door = nearestDoor();
+      if (door.d < C.DOOR_RANGE) {
+        if (door.kind === 'out') { leaveBank(); return 'leave'; }
+        if (door.at) { enterBank(door.at); return 'enter-bank'; }
+      }
+
       var gun = nearestGun();
       if (gun.gun && gun.d < C.PICKUP_RANGE) {
         gun.gun.taken = true;
-        p.hasGun = true;
-        p.ammo = C.MAG;
-        say('picked up a nerf blaster — click to fire', 2.6);
+        var picked = giveWeapon('blaster');
+        say('picked up a ' + picked.name + ' — click or press S to fire', 2.8);
         return 'gun';
       }
 
@@ -801,13 +1046,16 @@
         p.robbing = 0;
         p.robTarget = null;
         state.stats.robbed++;
-        raiseWanted(l.kind === 'vault' ? 3 : l.kind === 'register' ? 2 : 1);
+        raiseWanted(l.kind === 'safe' ? 4 : l.kind === 'vault' ? 3 : l.kind === 'register' ? 2 : 1);
         say('+$' + l.cash + ' from the ' + labelFor(l.kind), 2.6);
       }
     }
 
     function labelFor(kind) {
-      return kind === 'atm' ? 'cash machine' : kind === 'register' ? 'till' : 'bank vault';
+      if (kind === 'atm') return 'cash machine';
+      if (kind === 'register') return 'till';
+      if (kind === 'safe') return 'bank safe';
+      return 'bank vault';
     }
 
     // --- main step --------------------------------------------------------------
@@ -832,8 +1080,10 @@
           say('you dried off. your money is safe.', 3);
         }
       } else {
-        if (p.driving && p.car) driveCar(dt, input); else moveOnFoot(dt, input);
-        updateRobbery(dt, input);
+        if (!state.store.open) {
+          if (p.driving && p.car) driveCar(dt, input); else moveOnFoot(dt, input);
+          updateRobbery(dt, input);
+        }
       }
 
       if (p.fireCooldown > 0) p.fireCooldown -= dt;
@@ -877,6 +1127,14 @@
       nearestLoot: nearestLoot,
       nearestCar: nearestCar,
       nearestGun: nearestGun,
+      nearestStore: nearestStore,
+      nearestDoor: nearestDoor,
+      currentWeapon: currentWeapon,
+      giveWeapon: giveWeapon,
+      switchWeapon: switchWeapon,
+      useMedkit: useMedkit,
+      buy: buy,
+      weapons: WEAPONS,
       playerPos: playerPos,
       spawnCop: spawnCop,
       raiseWanted: raiseWanted,

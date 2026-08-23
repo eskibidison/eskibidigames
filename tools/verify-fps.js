@@ -26,6 +26,38 @@ const port = 9300 + Math.floor(Math.random() * 400);
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'gtafun-verify-'));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+
+
+const profileTag = path.basename(profile);
+
+// Cleanup by PID diff, not by command line. Chrome's GPU and utility processes
+// do not carry --user-data-dir, so filtering on the profile path missed them
+// and left dozens of orphans behind. Anything named chrome.exe that did not
+// exist before we launched is ours; anything older is the user's, untouched.
+function runPowerShell(lines) {
+  const script = path.join(os.tmpdir(), `gtafun-ps-${process.pid}-${Math.random().toString(36).slice(2)}.ps1`);
+  fs.writeFileSync(script, lines.join('\n'), 'utf8');
+  try {
+    return execSync(`powershell -NoProfile -ExecutionPolicy Bypass -File "${script}"`).toString();
+  } finally {
+    try { fs.unlinkSync(script); } catch (e) { /* fine */ }
+  }
+}
+
+function chromePids() {
+  try {
+    return runPowerShell(['Get-Process chrome -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id'])
+      .split(/\s+/).filter(Boolean).map(Number);
+  } catch (e) {
+    return [];
+  }
+}
+
+const preexisting = chromePids();
+const keepList = preexisting.join(',') || '-1';
+
+// Launched only after the snapshot above, or our own browser would look
+// pre-existing and be spared by the cleanup.
 const child = spawn(chrome, [
   '--headless=new', '--no-sandbox', '--disable-gpu', '--enable-unsafe-swiftshader',
   '--allow-file-access-from-files', '--hide-scrollbars', '--mute-audio',
@@ -33,22 +65,30 @@ const child = spawn(chrome, [
   `--remote-debugging-port=${port}`, 'about:blank',
 ], { stdio: ['ignore', 'ignore', 'ignore'] });
 
-const profileTag = path.basename(profile);
-
-// Chrome re-parents its renderers, so killing the pid we spawned leaves a pile
-// of orphans behind. Match on our unique profile directory instead: that only
-// ever hits browsers this script started, never the user's own windows.
+// Killing one process at a time raced Chrome's own restarts, so PowerShell does
+// the whole diff-and-kill in one pass and retries until nothing of ours is left.
 function cleanup() {
   try { execSync(`taskkill /PID ${child.pid} /T /F`, { stdio: 'ignore' }); } catch (e) { /* already gone */ }
   try {
-    execSync('powershell -NoProfile -Command "' +
-      "Get-CimInstance Win32_Process -Filter \\\"Name='chrome.exe'\\\" | " +
-      `Where-Object { $_.CommandLine -like '*${profileTag}*' } | ` +
-      'ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"',
-      { stdio: 'ignore' });
+    runPowerShell([
+      `$keep = @(${keepList})`,
+      'for ($i = 0; $i -lt 6; $i++) {',
+      '  $mine = Get-Process chrome -ErrorAction SilentlyContinue | Where-Object { $keep -notcontains $_.Id }',
+      '  if (-not $mine) { break }',
+      '  $mine | Stop-Process -Force -ErrorAction SilentlyContinue',
+      '  Start-Sleep -Milliseconds 400',
+      '}',
+    ]);
   } catch (e) { /* nothing left to kill */ }
   try { fs.rmSync(profile, { recursive: true, force: true }); } catch (e) { /* fine */ }
 }
+
+// Reports how many of our browsers are still alive, so a broken cleanup shows
+// up here rather than as a laggy machine an hour later.
+function survivors() {
+  return chromePids().filter(pid => preexisting.indexOf(pid) === -1).length;
+}
+
 process.on('exit', cleanup);
 process.on('SIGINT', () => { cleanup(); process.exit(130); });
 
@@ -206,6 +246,52 @@ const CODES = {
   await shoot('7-officer');
   console.log(`  officer model native height ${height}, drawn at 2.35m`);
 
+  // The armoury, open, with money to spend.
+  await evaluate(`
+    (function () {
+      var st = S.city.stores[0];
+      S.player.money = 4000;
+      S.player.x = st.x + 1.5; S.player.z = st.z + 1.5; S.player.driving = false; S.player.car = null;
+      S.player.yaw = Math.atan2(-(st.x - S.player.x), -(st.z - S.player.z));
+      game.interact();
+      return S.store.open;
+    })()
+  `);
+  await sleep(700);
+  await shoot('8-armoury');
+  const shopOpen = await evaluate('S.store.open');
+  console.log(`  armoury open: ${shopOpen}`);
+
+  // Buy the heavy blaster, then look at it in hand.
+  const bought = await evaluate(`
+    (function () {
+      var idx = S.store.items.findIndex(function (i) { return i.weapon === 'heavy'; });
+      var r = game.buy(idx);
+      game.interact();
+      return r + ':' + S.player.weapon;
+    })()
+  `);
+  await sleep(900);
+  await shoot('9-heavy-blaster');
+  console.log(`  bought heavy blaster -> ${bought}`);
+
+  // Inside the bank.
+  const inside = await evaluate(`
+    (function () {
+      var d = S.city.doors[0];
+      S.player.x = d.x; S.player.z = d.z + 2;
+      var r = game.interact();
+      // Face into the room. Facing the other way looks straight out of the
+      // doorway you just walked through, which shows nothing at all.
+      S.player.yaw = Math.PI / 2;
+      S.player.x -= 6;
+      return r + ':' + S.player.indoors;
+    })()
+  `);
+  await sleep(900);
+  await shoot('10-bank-inside');
+  console.log(`  bank entry -> ${inside}`);
+
   const logs = [];
   for (const ev of cdp.events) {
     if (ev.method === 'Runtime.exceptionThrown') {
@@ -219,6 +305,9 @@ const CODES = {
 
   cdp.close();
   cleanup();
+  const left = survivors();
+  console.log(left === 0 ? 'browser cleaned up: 0 processes left'
+    : `WARNING: ${left} browser processes survived cleanup`);
   process.exit(0);
 })().catch(err => {
   console.error('failed:', err.message);

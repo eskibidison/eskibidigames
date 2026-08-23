@@ -58,6 +58,18 @@ const WANTED = {
 
   // things you carry and things you rob
   'blaster': ['blaster-kit', 'blaster-a'],
+  'blaster-rapid': ['blaster-kit', 'blaster-b'],
+  'blaster-heavy': ['blaster-kit', 'blaster-f'],
+  'blaster-scatter': ['blaster-kit', 'blaster-i'],
+  'blaster-long': ['blaster-kit', 'blaster-k'],
+  'dart': ['blaster-kit', 'bullet-foam'],
+  'crate': ['blaster-kit', 'crate-medium'],
+
+  // the bank interior, built from wall and floor pieces
+  'wall': ['retro-urban-kit', 'wall-a-flat'],
+  'wall-door': ['retro-urban-kit', 'wall-a-door'],
+  'wall-corner': ['retro-urban-kit', 'wall-a-corner'],
+  'floor': ['furniture-kit', 'floorFull'],
   'atm': ['furniture-kit', 'kitchenFridge'],
   'till': ['furniture-kit', 'desk'],
   'till-screen': ['furniture-kit', 'computerScreen'],

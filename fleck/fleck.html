@@ -112,6 +112,47 @@
           background:#F3F5EC;border-radius:8px;overflow:hidden;
           box-shadow:0 10px 40px rgba(0,0,0,.32);border:1px solid #8FA557}
   #market.open{display:flex;flex-direction:column}
+
+  /* Reward popup. Same shell as the market -- cream card, green header bar,
+     one gold border -- just centred and small, because it is an announcement
+     rather than a place you browse. */
+  /* Loading screen. The sprites are ~1150 separate files now, and a browser
+     opens only six connections at a time, so a cold load takes a while and the
+     garden would otherwise appear empty and fill in plant by plant. Cached
+     after the first visit, so this is usually a flash. */
+  #loading{position:absolute;inset:0;z-index:90;background:#EAF0E2;
+           display:grid;place-items:center;transition:opacity .35s ease}
+  #loading.done{opacity:0;pointer-events:none}
+  #loading .lwrap{text-align:center;width:300px}
+  #loading .ltitle{font-size:30px;letter-spacing:9px;color:#7E8B63;margin-bottom:18px}
+  #loading .lbar{height:12px;border-radius:6px;background:#CFD8C0;overflow:hidden}
+  #loading .lbar i{display:block;height:100%;width:0;border-radius:6px;
+                   background:linear-gradient(#a8d16a,#7fae3e);transition:width .15s linear}
+  #loading .lnum{margin-top:9px;font-size:12px;color:#8A9476}
+
+  #reward{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%) scale(.9);
+          width:330px;display:none;z-index:60;opacity:0;
+          background:#F3F5EC;border-radius:8px;overflow:hidden;
+          box-shadow:0 12px 44px rgba(0,0,0,.38);border:1px solid #8FA557;
+          transition:opacity .18s ease, transform .18s ease}
+  #reward.open{display:block;opacity:1;transform:translate(-50%,-50%) scale(1)}
+  #rhead{background:#547D04;color:#fff;padding:7px 14px;font-size:16px;
+         display:flex;align-items:center;justify-content:space-between}
+  #rclose{cursor:pointer;font-size:19px;line-height:1;opacity:.85;padding:0 4px}
+  #rclose:hover{opacity:1}
+  #rbody{padding:16px 18px 18px;text-align:center}
+  #rplant{height:120px;display:grid;place-items:center;margin-bottom:4px}
+  #rplant img{max-height:120px;max-width:170px;image-rendering:pixelated}
+  #rname{font-size:15px;font-weight:bold;color:#2F3A18}
+  #rsub{font-size:11px;color:#928F8F;margin-top:3px}
+  #rgains{display:flex;justify-content:center;gap:18px;margin:13px 0 4px}
+  #rgains .g{display:flex;align-items:center;gap:5px;font-size:14px;color:#2F3A18}
+  #rgains .g img{width:17px;height:17px;image-rendering:pixelated}
+  #rgains .xp{background:#93C862;color:#24400b;border-radius:9px;
+              padding:2px 9px;font-size:12px;font-weight:bold}
+  #rok{margin-top:12px;background:#8CBF3F;color:#fff;border:none;border-radius:5px;
+       padding:9px 30px;font-family:inherit;font-size:14px;font-weight:bold;cursor:pointer}
+  #rok:hover{background:#9BCE4C}
   #mhead{background:#547D04;color:#fff;padding:7px 14px;font-size:16px;
          display:flex;align-items:center;justify-content:space-between}
   #mclose{cursor:pointer;font-size:19px;line-height:1;opacity:.85;padding:0 4px}
@@ -266,6 +307,28 @@
       <div id="mitems"></div>
     </div>
   </div>
+  <div id="loading">
+    <div class="lwrap">
+      <div class="ltitle">FLECK</div>
+      <div class="lbar"><i id="lfill"></i></div>
+      <div class="lnum" id="lnum">loading the garden&hellip;</div>
+    </div>
+  </div>
+
+  <div id="reward">
+    <div id="rhead"><span>garden defended!</span><span id="rclose">&times;</span></div>
+    <div id="rbody">
+      <div id="rplant"><img id="rimg" alt=""></div>
+      <div id="rname"></div>
+      <div id="rsub">added to your bag &mdash; plant it anywhere</div>
+      <div id="rgains">
+        <span class="g"><span id="rcoins">0</span><img id="rcoinimg" alt=""></span>
+        <span class="g"><span class="xp" id="rxp">+0 xp</span></span>
+      </div>
+      <button id="rok">nice</button>
+    </div>
+  </div>
+
   <div id="held"><img id="heldimg" alt=""><span id="heldname"></span><button id="heldx">cancel</button></div>
   <div id="toast"></div>
   <div id="inv">
@@ -314,6 +377,7 @@
       <button class="hbtn baked"><img class="ico" id="ico_btn_profile" alt=""><span class="lbl">profile</span></button>
       <button class="hbtn baked"><img class="ico" id="ico_btn_quests" alt=""><span class="lbl">quests</span></button>
       <button class="hbtn baked" disabled title="not built yet"><img class="ico" id="ico_icon_style" alt=""><span class="lbl">style</span></button>
+      <button class="hbtn" id="sndbtn" title="sound on/off">&#9835;</button>
     </div>
   </div>
 
@@ -336,12 +400,96 @@
 <script src="sprites.js"></script>
 <script>
 // ---------------------------------------------------------------- sprites
-const S = window.FLECK_SPRITES || {};
+// ---------------------------------------------------------------- sprites
+// Sprites arrive as a handful of ATLAS SHEETS rather than ~1150 separate
+// files. On a local server the per-request overhead dwarfed the bytes: a cold
+// load spent twenty seconds opening sockets. Seven requests fixed that.
+//
+// Each sprite is cut back out of its sheet onto its own small canvas at boot,
+// and a canvas draws through ctx.drawImage exactly like an Image, so every
+// drawing call in this file is unchanged. `naturalWidth` and `complete` are
+// set by hand because the rest of the code checks them before drawing.
 const IMG = {};
-for (const k in S) { const i = new Image(); i.src = S[k]; IMG[k] = i; }
-document.getElementById('portrait').style.backgroundImage = "url('"+(S['avatar']||'')+"')";
-document.getElementById('coinimg').src= S['coin']     || '';
-document.getElementById('gemimg').src = S['gem']      || '';
+const S = {};                      // key -> a truthy marker, for `S[k]` tests
+
+function __show(msg, pct){
+  const fill=document.getElementById('lfill'), num=document.getElementById('lnum');
+  if(fill) fill.style.width=(pct*100).toFixed(1)+'%';
+  if(num)  num.textContent=msg;
+}
+function __ready(){
+  const box=document.getElementById('loading');
+  if(box){ box.classList.add('done'); setTimeout(()=>{ box.style.display='none'; }, 400); }
+}
+
+/**
+ * A URL for a sprite, for the places that need a real <img> rather than a
+ * canvas -- the HUD, the market rows, the reward popup. Sprites live on
+ * canvases now, so this bakes one out on demand and remembers it; the market
+ * rebuilds often and re-encoding every row each time would be wasteful.
+ */
+const __url = {};
+function src(key){
+  if(__url[key]) return __url[key];
+  const c = IMG[key];
+  if(!c || !c.width) return '';      // asked for before the atlas decoded
+  let out = '';
+  try { out = c.toDataURL('image/png'); } catch(e) { return ''; }
+  // Only a REAL url is cached. Caching the empty string would make anything
+  // asked for during loading stay blank for the rest of the session.
+  __url[key] = out;
+  return out;
+}
+
+async function loadSprites(){
+  let atlas;
+  try{
+    atlas = await (await fetch('atlas/atlas.json')).json();
+  }catch(e){
+    __show('could not load the artwork — is the server running?', 0);
+    return;
+  }
+  const pages=[];
+  for(let i=0;i<atlas.pages;i++){
+    __show('loading the garden… sheet '+(i+1)+' of '+atlas.pages,
+           i/atlas.pages*0.9);
+    pages.push(await new Promise(res=>{
+      const im=new Image();
+      im.onload=()=>res(im);
+      im.onerror=()=>res(null);        // a missing sheet must not hang the door
+      im.src='atlas/atlas'+i+'.png';
+    }));
+  }
+  const frames=atlas.frames;
+  let n=0, total=Object.keys(frames).length;
+  for(const key in frames){
+    const [pi,x,y,w,h]=frames[key];
+    const page=pages[pi];
+    if(!page){ continue; }
+    const cv=document.createElement('canvas');
+    cv.width=w; cv.height=h;
+    cv.getContext('2d').drawImage(page, x, y, w, h, 0, 0, w, h);
+    // The drawing code checks these before it will draw anything.
+    cv.naturalWidth=w; cv.naturalHeight=h; cv.complete=true;
+    IMG[key]=cv; S[key]='atlas';
+    n++;
+  }
+  __show('ready', 1);
+  __ready();
+  afterSprites();
+}
+
+function paintChrome(){
+  document.getElementById('portrait').style.backgroundImage = "url('"+src('avatar')+"')";
+  document.getElementById('coinimg').src = src('coin');
+  document.getElementById('gemimg').src  = src('gem');
+  document.getElementById('cartimg').src = src('icon_market') || src('shopping_cart');
+  for (const key of ['btn_profile','btn_quests','icon_style','icon_bank',
+                     'icon_find_me','icon_go_home','icon_bolt','icon_health']) {
+    const el = document.getElementById('ico_' + key);
+    if (el) el.src = src(key);
+  }
+}
 
 // ---------------------------------------------------------------- catalogue
 // Same shape as Fleck.Core's StarterCatalogData: category drives the Variety
@@ -484,7 +632,7 @@ const FACINGS = ['south','south_west','west','north_west','north','north_east','
 const MIRROR = {east:'west', west:'east', north_east:'north_west', north_west:'north_east',
                 south_east:'south_west', south_west:'south_east'};
 const CARDINAL = {north_west:'north', north_east:'north', south_west:'south', south_east:'south'};
-const FPS = {walk:12, water:10, plant:10, dig:10, shear:10};
+const FPS = {walk:12, water:10, plant:10, dig:10, shear:10, pick:11, shoot:11, harvest:10};
 const LOOPS = {walk:true};
 
 function clipFrames(action, facing){
@@ -566,6 +714,13 @@ const G = {
   // Loose Zenomites. Transient on purpose -- they are not saved, they are
   // re-released by whatever Zombie Plants are still standing after a load.
   zenos:[],
+  // The fight in progress, or null. One at a time on purpose -- digging up a
+  // second plant mid-fight would turn the garden into a bullet hell.
+  fight:null,
+  // Where she is AIMING, which is not where she is walking. Combat is the
+  // whole reason these are separate: she backs away north while shooting at
+  // something south of her.
+  aim:null,
   bag:{fertilizer:0, red_bolt:2, health_kit:0},
   // Plants and decorations bought but not yet put in the ground. Placing one
   // spends a seed before it spends coins, so a stocked bag plants for free.
@@ -650,10 +805,137 @@ function centerCam(){
 const levelFor = xp => {let l=1,need=0; while(l<50 && xp >= need + 150*l){need+=150*l;l++;} return l;};
 const xpBase   = l => {let n=0; for(let i=1;i<l;i++) n+=150*i; return n;};
 
+/**
+ * The prize for clearing a Zombie Plant. Shows the plant itself at full size,
+ * because "a Cherry Blossom" means nothing next to a picture of one, and the
+ * fully grown art is what the player is actually being promised.
+ */
+function showReward(rw){
+  const box=document.getElementById('reward');
+  document.getElementById('rimg').src = src(rw.plant.id+'_mature');
+  document.getElementById('rname').textContent = rw.plant.name;
+  document.getElementById('rcoins').textContent = rw.coins.toLocaleString();
+  document.getElementById('rxp').textContent = '+'+rw.xp+' xp';
+  document.getElementById('rcoinimg').src = src('coin');
+  box.classList.add('open');
+  Snd.play('reward');
+}
+function closeReward(){ document.getElementById('reward').classList.remove('open'); }
+
+// ---- sound ----------------------------------------------------------------
+// Everything here is SYNTHESISED with the Web Audio API rather than loaded as
+// files. Two reasons: the folder build already ships 1100 sprites and adding a
+// megabyte of audio would undo the point of moving off the inlined build, and
+// chiptune SFX are cheaper to make out of oscillators than to record.
+//
+// Browsers refuse to start audio until the page has been clicked, so the
+// context is created lazily on the first real interaction. Nothing plays --
+// and nothing errors -- before that.
+const Snd = (() => {
+  let ctx=null, master=null, musicOn=false, musicTimer=null, step=0;
+  let enabled = true;
+
+  function start(){
+    if(ctx) return ctx;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) { enabled=false; return null; }
+    ctx = new AC();
+    master = ctx.createGain();
+    master.gain.value = 0.22;              // quiet by default; it is a garden
+    master.connect(ctx.destination);
+    return ctx;
+  }
+
+  /** One shaped oscillator note. The envelope is what stops it sounding like a test tone. */
+  function tone(freq, dur, type, vol, slideTo){
+    if(!enabled || !start()) return;
+    const t=ctx.currentTime;
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type=type||'square';
+    o.frequency.setValueAtTime(freq, t);
+    if(slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(20,slideTo), t+dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol||0.25, t+0.012);   // fast attack
+    g.gain.exponentialRampToValueAtTime(0.0001, t+dur);        // and a tail
+    o.connect(g); g.connect(master);
+    o.start(t); o.stop(t+dur+0.02);
+  }
+
+  /** Filtered white noise -- shotgun blasts, digging, anything percussive. */
+  function noise(dur, vol, freq, q){
+    if(!enabled || !start()) return;
+    const t=ctx.currentTime, n=Math.floor(ctx.sampleRate*dur);
+    const buf=ctx.createBuffer(1, n, ctx.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(1-i/n);   // decays as it goes
+    const src=ctx.createBufferSource(); src.buffer=buf;
+    const f=ctx.createBiquadFilter();
+    f.type='bandpass'; f.frequency.value=freq||900; f.Q.value=q||1.2;
+    const g=ctx.createGain(); g.gain.value=vol||0.3;
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start(t);
+  }
+
+  const SFX = {
+    plant:   () => { tone(330,.10,'sine',.22); setTimeout(()=>tone(440,.12,'sine',.20),70); },
+    water:   () => { tone(880,.22,'sine',.14,1500); },
+    harvest: () => { tone(523,.09,'square',.18); setTimeout(()=>tone(784,.14,'square',.18),80); },
+    shear:   () => { noise(.07,.28,2600,3); setTimeout(()=>noise(.07,.24,2200,3),90); },
+    dig:     () => { noise(.18,.34,320,.8); tone(120,.16,'triangle',.20,70); },
+    buy:     () => { tone(660,.08,'square',.18); setTimeout(()=>tone(990,.13,'square',.18),70); },
+    shoot:   () => { noise(.13,.42,700,.7); tone(90,.16,'triangle',.28,45); },
+    hit:     () => { tone(180,.10,'sawtooth',.22,90); },
+    kill:    () => { tone(200,.20,'sawtooth',.24,60); noise(.16,.22,420,.9); },
+    hurt:    () => { tone(240,.22,'sawtooth',.26,110); },
+    emerge:  () => { noise(.30,.30,240,.7); tone(70,.32,'triangle',.22,150); },
+    fight:   () => { [330,392,494].forEach((f,i)=>setTimeout(()=>tone(f,.16,'square',.20),i*90)); },
+    reward:  () => { [523,659,784,1047].forEach((f,i)=>setTimeout(()=>tone(f,.20,'square',.22),i*110)); },
+    denied:  () => { tone(200,.14,'square',.18,150); },
+  };
+
+  // A slow four-chord loop in A minor, one note at a time. Deliberately sparse
+  // -- this plays for as long as the game is open, and anything busier would
+  // wear out inside a minute.
+  const BASS=[110,110,146.83,164.81], MEL=[440,523.25,659.25,523.25,587.33,493.88,440,392];
+  function tick(){
+    if(!musicOn) return;
+    const bar=Math.floor(step/4)%4;
+    if(step%4===0) tone(BASS[bar], .55, 'triangle', .13);
+    if(step%2===0) tone(MEL[step%MEL.length], .30, 'square', .045);
+    step++;
+    musicTimer=setTimeout(tick, 420);
+  }
+
+  return {
+    play(name){ if(enabled && SFX[name]) SFX[name](); },
+    music(on){
+      musicOn=on;
+      if(on){ start(); if(!musicTimer) tick(); }
+      else { clearTimeout(musicTimer); musicTimer=null; }
+    },
+    toggle(){
+      enabled=!enabled;
+      this.music(enabled);
+      if(!enabled && ctx) master.gain.value=0;
+      else if(ctx) master.gain.value=0.22;
+      return enabled;
+    },
+    get on(){ return enabled; },
+    resume(){ if(ctx && ctx.state==='suspended') ctx.resume(); }
+  };
+})();
+
+// Audio cannot start until the page has been interacted with, so the first
+// click both resumes the context and starts the music.
+addEventListener('pointerdown', function first(){
+  Snd.resume(); Snd.music(true);
+  removeEventListener('pointerdown', first);
+}, {once:false});
+
 function toast(msg, warn){
   const t=document.getElementById('toast');
   t.textContent=msg;
   t.classList.toggle('warn', !!warn);
+  if(warn) Snd.play('denied');
   // Re-trigger the pop even when the same message repeats.
   t.classList.remove('show'); void t.offsetWidth; t.classList.add('show');
   clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'), 2200);
@@ -897,6 +1179,26 @@ function zenoAttackFrame(kind, facing, elapsed){
   }
   return null;
 }
+function zenoEmergeFrames(kind){
+  const k='zem:'+kind;
+  if(CLIP_LEN[k]===undefined){
+    let n=0; while(n<32 && S['zenomites/'+kind+'_emerge_'+n]) n++;
+    CLIP_LEN[k]=n;
+  }
+  return CLIP_LEN[k];
+}
+function zenoEmergeLength(kind){
+  const n=zenoEmergeFrames(kind);
+  return n ? n/ZENO_ATK_FPS : 0.9;   // no art yet: still pause before it walks
+}
+/** The climbing-out clip, held on its last frame. */
+function zenoEmergeFrame(kind, elapsed){
+  const n=zenoEmergeFrames(kind);
+  if(!n) return null;
+  const i=Math.min(n-1, Math.floor(elapsed*ZENO_ATK_FPS));
+  const img=IMG['zenomites/'+kind+'_emerge_'+i];
+  return (img && img.complete && img.naturalWidth) ? img : null;
+}
 function zenoAttackLength(kind, facing){
   for(const cand of fallbackChain(facing)){
     const n=zenoAttackFrames(kind,cand);
@@ -953,7 +1255,101 @@ function releaseFrom(c,r,lvl){
   if(!made.length) return null;
   return made.length===1 ? 'a '+made[0] : made.join(' and a ').replace(/^/,'a ');
 }
-function spawnZenomite(c,r,kind){
+// ---- the fight -------------------------------------------------------------
+// Digging up a Zombie Plant does not just release what is inside, it starts a
+// FIGHT. They come up out of the soil a few at a time rather than all at once,
+// so the garden does not go from quiet to swarmed in one frame and so there is
+// somewhere to back away to.
+//
+// She picks the shotgun up by herself whenever any of them are on the map --
+// there is no weapon button to find and no way to be caught holding a trowel.
+const SHOOT_RANGE  = HEX_W*4.2;   // she will not fire at something across the map
+const SHOOT_COOL   = 0.85;        // seconds between shots
+const SHOOT_DAMAGE = 34;
+const ZENO_HP      = {chomper:60, spitter:70, brute:150};
+const WAVE_GAP     = 2.2;         // seconds between one coming up and the next
+
+/** What a plant of this level is holding, in the order they climb out. */
+function fightRoster(lvl){
+  const small = () => Math.random()<0.5 ? 'chomper' : 'spitter';
+  if(lvl<=1) return [small()];
+  if(lvl===2) return [small(), small()];
+  if(lvl===3) return [small(), 'brute'];
+  return [small(), small(), 'brute'];          // fully grown
+}
+
+/** Coins/XP/plant for clearing a plant of this level. Bigger plant, better prize. */
+function fightReward(lvl){
+  const pool = SPECIES.filter(x=>isRare(x.id));
+  const plant = lvl>=3 && pool.length ? pool[(Math.random()*pool.length)|0]
+                                      : SPECIES[(Math.random()*SPECIES.length)|0];
+  return {coins: 120*lvl + 60, xp: 40*lvl + 20, plant};
+}
+
+function startFight(c,r,lvl){
+  const roster = fightRoster(lvl);
+  G.fight = {c, r, lvl, queue:roster.slice(), spawned:0, total:roster.length,
+             next:0.35, reward:fightReward(lvl)};
+  Snd.play('fight');
+  toast(roster.length===1 ? 'Something is coming up!'
+                          : roster.length+' of them are coming up!', true);
+}
+
+/** Let the queue out a few at a time, and end the fight when the map is clear. */
+function stepFight(dt){
+  const f=G.fight; if(!f) return;
+  if(f.queue.length){
+    f.next-=dt;
+    if(f.next<=0){
+      spawnZenomite(f.c, f.r, f.queue.shift(), true);
+      Snd.play('emerge');
+      f.spawned++;
+      f.next=WAVE_GAP;
+    }
+    return;
+  }
+  if(G.zenos.length===0){                       // all of them down
+    const rw=f.reward;
+    G.fight=null;
+    G.coins+=rw.coins; G.xp+=rw.xp;
+    G.seeds[rw.plant.id]=(G.seeds[rw.plant.id]||0)+1;
+    showReward(rw);
+  }
+}
+
+/**
+ * She shoots on her own. Aim is chosen every frame from whatever is closest,
+ * and is INDEPENDENT of the way she is walking -- backing away from something
+ * while still firing at it is the whole point of the animation set.
+ */
+function stepShooting(dt){
+  const a=G.avatar;
+  if(!G.zenos.length){ G.aim=null; a.shootCool=0; return; }
+
+  let best=null, bd=1e9;
+  for(const z of G.zenos){
+    const d=Math.hypot(z.x-a.x, z.y-a.y);
+    if(d<bd){ bd=d; best=z; }
+  }
+  if(!best || bd>SHOOT_RANGE){ G.aim=null; return; }
+
+  G.aim=facingFromVector(best.x-a.x, best.y-a.y, G.aim||a.facing);
+
+  a.shootCool=(a.shootCool||0)-dt;
+  if(a.shootCool<=0){
+    a.shootCool=SHOOT_COOL;
+    a.shotAt=G.t;                                // drives the firing animation
+    Snd.play('shoot');
+    best.hp=(best.hp||ZENO_HP[best.kind]||60)-SHOOT_DAMAGE;
+    if(best.hp<=0){
+      G.zenos.splice(G.zenos.indexOf(best),1);
+      G.xp+=8; Snd.play('kill');
+      toast('Killed the '+best.kind+'!');
+    }
+  }
+}
+
+function spawnZenomite(c,r,kind,emerging){
   if(G.zenos.length>=ZENO_MAX) return;
   const p=cellToPx(c,r);
   // Scatter slightly. Two coming out of the same plant on the same pixel look
@@ -964,7 +1360,10 @@ function spawnZenomite(c,r,kind){
                 // cool MUST start at 0, not undefined: the attack test reads
                 // `z.cool<=0`, and undefined<=0 is false, which would have
                 // meant nothing ever swung.
-                facing:'south', moving:false, rest:0, cool:0, dist:0, born:G.t});
+                facing:'south', moving:false, rest:0, cool:0, dist:0, born:G.t,
+                hp: ZENO_HP[kind||'chomper'] || 60,
+                // While it is climbing out it cannot move or be moved.
+                emergeAt: emerging ? G.t : undefined});
 }
 /** Amble about, or come at her. Kept inside the field either way. */
 function stepZenomites(dt){
@@ -973,6 +1372,12 @@ function stepZenomites(dt){
   const a=G.avatar;
 
   for(const z of G.zenos){
+    // Still climbing out of the soil: it cannot walk and cannot swing.
+    if(z.emergeAt!==undefined){
+      if(G.t-z.emergeAt >= zenoEmergeLength(z.kind)) z.emergeAt=undefined;
+      z.moving=false;
+      continue;
+    }
     // Mid-swing: hold still and let the clip play. The hit lands once, part
     // way in, and only if she is still standing there.
     if(z.atkAt!==undefined){
@@ -981,6 +1386,7 @@ function stepZenomites(dt){
         z.hitDone=true;
         if(Math.hypot(a.x-z.x, a.y-z.y) <= ZENO_REACH*1.4){
           G.health=Math.max(0, G.health-(ZENO_DAMAGE[z.kind]||4));
+          Snd.play('hurt');
           toast('The '+z.kind+' hit you!', true);
         }
       }
@@ -1030,13 +1436,18 @@ function actDigUp(c,r){
     const z=G.zombies.get(k), lvl=zombieLevel(z), nm=zombieName(z);
     if(!spend(COST.harvest)) return;
     G.zombies.delete(k);
-    actAt('plant',c,r);
-    // Digging one up does not make it go away -- it lets out what was growing
-    // inside. A young plant holds the small ones; a full grown one is where a
-    // Brute comes from, which is the reason to deal with them early.
-    const out=releaseFrom(c,r,lvl);
-    toast(out ? 'Uprooted the '+nm.replace(/\s+/g,' ')+' -- '+out+' got out!'
-              : 'Uprooted the '+nm.replace(/\s+/g,' '), !!out);
+    actAt('pick',c,r);           // pickaxe, not the crouch-and-plant reach
+    // A BUD is just destroyed -- that is the whole reason to deal with them
+    // early. Anything past Level 1 is holding Zenomites, and opening it starts
+    // a fight rather than quietly releasing them.
+    if(lvl<1){
+      toast('Smashed the sprout before it could grow');
+    } else if(G.fight){
+      toast('Finish the fight you already started', true);
+      G.zombies.set(k, z);                       // put it back, nothing spent
+    } else {
+      startFight(c,r,lvl);
+    }
     return;
   }
   if(G.decor.has(k)){
@@ -1090,6 +1501,7 @@ function actAt(action,c,r){
   const n=frameCount(action,a.facing) || frameCount(action,'south');
   if(!n) return;                       // no art for this action at all
   a.action=action; a.actionAt=G.t; a.actionDur=n/(FPS[action]||10);
+  Snd.play(action==='pick' ? 'dig' : action);
 }
 
 // ---------------------------------------------------------------- input
@@ -1164,7 +1576,7 @@ function updateHeld(){
   if(!thing){ el.classList.remove('on'); return; }
 
   document.getElementById('heldimg').src =
-    S[DECOR_BY_ID[id] ? 'decor/'+id : id+'_mature'] || '';
+    src(DECOR_BY_ID[id] ? 'decor/'+id : id+'_mature');
   document.getElementById('heldname').textContent = 'holding ' + thing.name;
   el.classList.add('on');
 }
@@ -1252,12 +1664,12 @@ function buildMarket(){
     el.className='mrow';
 
     const detail = r.gain!==undefined
-      ? r.time+' to gain <img class="cn" src="'+(S['coin']||'')+'">'+r.gain+
+      ? r.time+' to gain <img class="cn" src="'+src('coin')+'">'+r.gain+
         ' and <span class="xppill">'+r.xp+' xp</span>'
       : r.desc;
 
     el.innerHTML =
-      '<div class="pic"><img src="'+(S[r.img]||'')+'">'+
+      '<div class="pic"><img src="'+src(r.img)+'">'+
         '<div class="owned">'+ownedLabel(ownedCount(r.id))+'</div></div>'+
       '<div class="txt"><div class="nm">'+r.name+'</div>'+
       '<div class="ds">'+detail+'</div></div>';
@@ -1297,19 +1709,20 @@ function buildMarket(){
 document.getElementById('heldx').onclick=()=>{
   G.sel=null; updateHeld(); buildMarket(); toast('Put it back');
 };
+{
+  const b=document.getElementById('sndbtn');
+  b.onclick=()=>{ const on=Snd.toggle(); b.style.opacity=on?1:.45; b.textContent=on?'♫':'♫̸'; };
+}
+document.getElementById('rok').onclick=closeReward;
+document.getElementById('rclose').onclick=closeReward;
 document.getElementById('marketbtn').onclick=()=>toggleMarket();
 document.getElementById('mclose').onclick=()=>toggleMarket(false);
-document.getElementById('cartimg').src = S['icon_market'] || S['shopping_cart'] || '';
+
 
 // The bottom bar and HUD buttons used hand-drawn SVG placeholders until the
 // real icon set arrived. Fill each one from the sprite table; any that is
 // missing simply stays blank rather than breaking the layout.
-for (const key of ['btn_profile','btn_quests','icon_style','icon_bank',
-                   'icon_find_me','icon_go_home','icon_bolt','icon_health']) {
-  const el = document.getElementById('ico_' + key);
-  if (el && S[key]) el.src = S[key];
-}
-buildMarket();
+
 
 // ---------------------------------------------------------------- plant menu
 // Tapping a hex opens an explicit list of actions, the way the original does
@@ -1363,12 +1776,12 @@ function closeMenu(){
 /** The sprite that stands for whatever is on a hex, for the tab strip. */
 function hexThumb(c,r){
   const k=key(c,r);
-  if(G.zombies.has(k)) return S[zombieSprite(G.zombies.get(k))] || '';
-  if(G.decor.has(k)) return S['decor/'+G.decor.get(k).id] || '';
+  if(G.zombies.has(k)) return src(zombieSprite(G.zombies.get(k)));
+  if(G.decor.has(k)) return src('decor/'+G.decor.get(k).id);
   const p=G.plants.get(k); if(!p) return '';
   const s=BY_ID[p.id], age=G.t-p.born;
   const stage = age>=s.grow ? 'mature' : (age>=s.grow*.5 ? 'juvenile' : 'sprout');
-  return S[p.id+'_'+stage] || S[p.id+'_mature'] || '';
+  return src(p.id+'_'+stage) || src(p.id+'_mature');
 }
 
 /** The conditional part. Everything the player may do to this hex, in order. */
@@ -1395,14 +1808,14 @@ function menuActions(c,r){
 
   if(p.dead){
     // Only a dead plant can be planted again -- a living one is still there.
-    out.push({id:'again', label:'plant again', img:S[p.id+'_sprout']});
+    out.push({id:'again', label:'plant again', img:src(p.id+'_sprout')});
   } else {
     // The pre-rendered fertilize button has "(x0)" baked into the artwork, so
     // it is only truthful when you hold none -- which is also exactly when the
     // row is disabled. With any in the bag we fall back to the drawn row so
     // the count is real. Nothing is ever painted over the art.
     const n=G.bag.fertilizer||0;
-    out.push({id:'fert', label:'fertilize (x'+n+')', img:S['items/fertilizer'],
+    out.push({id:'fert', label:'fertilize (x'+n+')', img:src('items/fertilizer'),
               art: n===0 ? 'btn_fertilize' : null,
               disabled: n<=0 || !!p.fert});
     // Only a thirsty plant gets a watering can.
@@ -1471,7 +1884,7 @@ function buildMenu(){
     // Real button art where it exists (icon and label already baked in),
     // otherwise the drawn row. Both behave the same.
     const artKey = a.art!==undefined ? a.art : ROW_ART[a.id];
-    const art = artKey && S[artKey];
+    const art = artKey && src(artKey);
     if(art){
       const img=document.createElement('img');
       img.className='pactimg'+(a.disabled?' off':'');
@@ -1574,7 +1987,7 @@ function updateInv(){
   invSection(body,'in hand');
   const held = G.sel && (BY_ID[G.sel] || DECOR_BY_ID[G.sel]);
   if(held){
-    const img = DECOR_BY_ID[G.sel] ? S['decor/'+G.sel] : S[G.sel+'_mature'];
+    const img = DECOR_BY_ID[G.sel] ? src('decor/'+G.sel) : src(G.sel+'_mature');
     const row=invRow('hold', img, held.name,
                      '<button class="invdrop">put back</button>');
     row.querySelector('.invdrop').onclick=(ev)=>{
@@ -1596,7 +2009,7 @@ function updateInv(){
     invSection(body,'seeds');
     for(const id of seedIds){
       const t=BY_ID[id]||DECOR_BY_ID[id]; if(!t) continue;
-      const img = DECOR_BY_ID[id] ? S['decor/'+id] : S[id+'_mature'];
+      const img = DECOR_BY_ID[id] ? src('decor/'+id) : src(id+'_mature');
       const row=invRow(G.sel===id?'hold':'', img, t.name,
                        '<span class="ct">x'+G.seeds[id]+'</span>');
       row.onclick=()=>{ G.sel=id; updateHeld(); buildMarket();
@@ -1616,7 +2029,7 @@ function updateInv(){
   }
   for(const id of bagIds){
     const it=ITEM_BY_ID[id];
-    const row=invRow('', S['items/'+id]||S[id]||'', it?it.name:id,
+    const row=invRow('', src('items/'+id)||src(id), it?it.name:id,
                      '<span class="ct">x'+G.bag[id]+'</span>');
     row.onclick=()=>useItem(id);
     body.appendChild(row);
@@ -1709,6 +2122,8 @@ function step(now){
   // makes them something you choose to take on rather than something that
   // wanders into the garden while you are doing anything else.
   stepZenomites(dt);
+  stepFight(dt);
+  stepShooting(dt);
 
   if(panCamera(dt) && menuAt) layoutMenu();   // keep the menu on its hex
 
@@ -1755,6 +2170,8 @@ function seedDemo(){
   const dead=G.plants.get(key(12,9)); if(dead) dead.dead=true;
 
   G.zombies.set(key(6,10),{c:6,r:10,born:G.t-40});
+  // A fully grown one right beside her, so ?demo=1 can show the fight.
+  G.zombies.set(key(8,8),{c:8,r:8,born:G.t-60});
   // One of each Zenomite, so the demo view shows the walk art rather than
   // an empty field you would have to wait ~50s of Zombie Plant growth for.
   // One close enough to come at her, so the demo shows the chase and the
@@ -1768,8 +2185,6 @@ function seedDemo(){
   const p=cellToPx(8,7); G.avatar.x=p.x; G.avatar.y=p.y;
   buildMarket();
 }
-if(new URLSearchParams(location.search).has('demo')) seedDemo();
-
 // ---------------------------------------------------------------- rendering
 function hexPath(x,y){
   ctx.beginPath();
@@ -1924,9 +2339,16 @@ function draw(){
     else if(e.kind==='zeno'){
       // A still Zenomite holds frame 0 rather than running on the spot.
       const z=e.o;
-      const img = z.atkAt!==undefined
-        ? (zenoAttackFrame(z.kind, z.facing, G.t-z.atkAt) || zenoFrame(z.kind,z.facing,0))
-        : zenoFrame(z.kind, z.facing, z.moving ? (z.dist||0) : 0);
+      let img;
+      if(z.emergeAt!==undefined){
+        // Climbing out of the soil. Falls back to standing still if the clip
+        // has not been generated for this one yet.
+        img = zenoEmergeFrame(z.kind, G.t-z.emergeAt) || zenoFrame(z.kind,'south',0);
+      } else if(z.atkAt!==undefined){
+        img = zenoAttackFrame(z.kind, z.facing, G.t-z.atkAt) || zenoFrame(z.kind,z.facing,0);
+      } else {
+        img = zenoFrame(z.kind, z.facing, z.moving ? (z.dist||0) : 0);
+      }
       if(img && img.complete && img.naturalWidth){
         const k=(ZENO_HEIGHT[z.kind]||64)/img.naturalHeight;
         const w=img.naturalWidth*k, h=img.naturalHeight*k;
@@ -1963,7 +2385,12 @@ function draw(){
                    ') brightness('+(1+beat*0.16).toFixed(2)+')';
         ctx.drawImage(img,e.x-w/2,e.y-h+HEX_H*.22,w,h);
         ctx.restore();
-      }
+  
+        // Every Zombie Plant, bud or grown, is a job for the pickaxe, so it
+        // wears the hammer. What changes is what happens when you swing: a bud
+        // is simply smashed, a grown one lets a fight out.
+        badge(e.x + w*.34, e.y - h + HEX_H*.20 - 2, 'hammer');
+    }
     }
     else if(e.kind==='decor'){
       const img=IMG['decor/'+e.o.id];
@@ -1991,11 +2418,20 @@ function draw(){
       const a=G.avatar;
       // Real generated frames now, rather than squashing one static sprite.
       let img=null;
-      if(a.action && G.t-a.actionAt < a.actionDur){
+      const firing = G.aim && a.shotAt!==undefined &&
+                     (G.t-a.shotAt) < (frameCount('shoot',G.aim)||9)/(FPS.shoot||11);
+      if(firing){
+        // AIM, not facing. She walks one way and shoots another, which is the
+        // entire reason the two are separate values.
+        img=avatarFrame('shoot', G.aim, G.t-a.shotAt, false);
+      } else if(a.action && G.t-a.actionAt < a.actionDur){
         img=avatarFrame(a.action, a.facing, G.t-a.actionAt, false);
       } else {
         a.action=null;
-        img=avatarFrame('walk', a.facing, G.t, !a.moving);   // still = frame 0
+        // Between shots she still holds the gun on the target rather than
+        // reverting to an empty-handed walk mid-fight.
+        if(G.aim) img=avatarFrame('shoot', G.aim, 0, true);
+        if(!img) img=avatarFrame('walk', a.facing, G.t, !a.moving);
       }
       if(!img) img=IMG['avatar'];
 
@@ -2038,7 +2474,17 @@ function hud(){
   document.getElementById('bolts').textContent   = G.bag.red_bolt||0;
 }
 
-// Open on her rather than on the top-left corner of the field.
-centerCam();
-requestAnimationFrame(step);
+/** Everything that needs artwork, run once the atlas sheets are decoded. */
+function afterSprites(){
+  paintChrome();
+  buildMarket();
+  // The inventory is written once at boot, before any artwork exists, so its
+  // <img> tags were filled with empty strings. Rebuild it now that they can
+  // actually resolve.
+  updateInv();
+  if(new URLSearchParams(location.search).has('demo')) seedDemo();
+  centerCam();          // open on her, not on the top-left corner of the field
+  requestAnimationFrame(step);
+}
+loadSprites();
 </script>

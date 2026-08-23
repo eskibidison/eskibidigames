@@ -22,13 +22,13 @@ set PORT=8765
 where python >nul 2>nul && (
   echo Starting Fleck with Python on http://localhost:%PORT%/fleck.html
   start "" http://localhost:%PORT%/fleck.html
-  python -m http.server %PORT%
+  python serve.py %PORT%
   goto :eof
 )
 where py >nul 2>nul && (
   echo Starting Fleck with Python on http://localhost:%PORT%/fleck.html
   start "" http://localhost:%PORT%/fleck.html
-  py -m http.server %PORT%
+  py serve.py %PORT%
   goto :eof
 )
 where npx >nul 2>nul && (

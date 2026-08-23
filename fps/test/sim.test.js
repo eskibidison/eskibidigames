@@ -62,7 +62,8 @@ section('city');
   const s = g.state;
   assert.ok(s.city.buildings.length > 30, `the city has buildings (${s.city.buildings.length})`);
   assert.ok(s.city.loot.length > 30, `there are things to rob (${s.city.loot.length})`);
-  assert.ok(s.city.loot.some(l => l.kind === 'vault'), 'there is a bank vault');
+  assert.ok(s.city.loot.some(l => l.kind === 'safe'), 'there is a safe inside the bank');
+  assert.ok(s.city.doors.length > 0, 'there are bank doors to walk through');
   assert.ok(s.city.loot.some(l => l.kind === 'atm'), 'there are cash machines');
   assert.ok(s.city.loot.some(l => l.kind === 'register'), 'there are tills');
   ok(`city built: ${s.city.buildings.length} buildings, ${s.city.loot.length} robbable things`);
@@ -319,6 +320,143 @@ section('running them over');
     if (stars === 5) assert.ok(cars >= 3, `five stars brings a proper convoy (got ${cars})`);
   }
   ok('police cars scale with the wanted level, one per star up to five');
+}
+
+// --- 5d. the armoury --------------------------------------------------------
+
+section('armoury');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  const shop = s.city.stores[0];
+  walkTowards(g, shop.x, shop.z, 4000, SIM.C.STORE_RANGE - 0.8);
+  assert.equal(g.interact(), 'store', 'the armoury opens when you walk up to it');
+  assert.ok(s.store.open, 'the shop is open');
+  assert.ok(s.store.items.length >= 6, `it stocks weapons and supplies (${s.store.items.length})`);
+  ok(`armoury opened, stocking ${s.store.items.length} things`);
+
+  // You cannot buy what you cannot afford.
+  assert.equal(g.buy(0), 'poor', 'no credit for the penniless');
+  assert.equal(s.player.weapon, null, 'and nothing changes hands');
+  ok('you cannot buy a blaster with no money');
+
+  s.player.money = 5000;
+  const rapid = s.store.items.findIndex(i => i.weapon === 'rapid');
+  assert.equal(g.buy(rapid), 'weapon', 'bought the rapid blaster');
+  assert.equal(s.player.weapon, 'rapid', 'and it is now in your hands');
+  assert.ok(s.player.ammoFor.rapid > 0, 'it came loaded');
+  assert.equal(s.player.money, 5000 - s.store.items[rapid].price, 'the money left your pocket');
+  ok(`bought a ${s.store.items[rapid].name} for $${s.store.items[rapid].price}`);
+
+  const heavyIdx = s.store.items.findIndex(i => i.weapon === 'heavy');
+  g.buy(heavyIdx);
+  assert.ok(s.player.owned.rapid && s.player.owned.heavy, 'you keep the ones you bought');
+  assert.ok(g.switchWeapon(1), 'and can switch between them');
+  ok('owning several blasters and switching between them works');
+
+  // Movement is frozen while the shop is open, so you cannot shop and run.
+  const where = { x: s.player.x, z: s.player.z };
+  run(g, 60, { forward: true });
+  assert.ok(Math.hypot(s.player.x - where.x, s.player.z - where.z) < 0.01,
+    'you stand still while shopping');
+  assert.equal(g.interact(), 'store-close', 'E closes the shop');
+  assert.ok(!s.store.open, 'and it is shut');
+  ok('the shop freezes you while it is open and closes with E');
+}
+
+// --- 5e. weapons differ -----------------------------------------------------
+
+section('weapons');
+{
+  // A heavy blaster must drop an officer in fewer shots than the starter.
+  const shotsToDrop = id => {
+    const g = SIM.createGame();
+    g.giveWeapon(id, 999);
+    const cop = g.spawnCop(g.state.player.x, g.state.player.z - 10);
+    let shots = 0;
+    for (let i = 0; i < 60 * 60 && cop.state !== 'sat'; i++) {
+      faceTowards(g, cop.x, cop.z);
+      g.state.player.pitch = 0;
+      const before = g.state.darts.length;
+      g.update(STEP, Object.assign(noInput(), { fire: true }));
+      if (g.state.darts.length > before) shots++;
+    }
+    return { shots, dropped: cop.state === 'sat' };
+  };
+
+  const standard = shotsToDrop('blaster');
+  const heavy = shotsToDrop('heavy');
+  assert.ok(standard.dropped && heavy.dropped, 'both blasters sit an officer down');
+  assert.ok(heavy.shots < standard.shots,
+    `the heavy blaster needs fewer shots (${heavy.shots} vs ${standard.shots})`);
+  ok(`heavy blaster drops an officer in ${heavy.shots} shots, the starter takes ${standard.shots}`);
+
+  // The scatter blaster throws a handful of darts per trigger pull.
+  const g2 = SIM.createGame();
+  g2.giveWeapon('scatter', 99);
+  g2.update(STEP, Object.assign(noInput(), { fire: true }));
+  assert.equal(g2.state.darts.length, 5, 'the scatter blaster fires five darts at once');
+  ok('the scatter blaster fires five darts in one pull');
+}
+
+// --- 5f. robbing the bank from the inside -----------------------------------
+
+section('the bank');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  const door = s.city.doors[0];
+  walkTowards(g, door.x, door.z, 5000, SIM.C.DOOR_RANGE - 1.0);
+  assert.equal(g.interact(), 'enter-bank', 'the bank door lets you in');
+  assert.ok(s.player.indoors, 'you are inside');
+  assert.ok(!g.blocked(s.player.x, s.player.z, SIM.C.PLAYER_R), 'and not standing in a wall');
+  ok('walked through the bank door and ended up inside');
+
+  const safe = s.city.loot.find(l => l.kind === 'safe');
+  const set = new Set();
+  walkTowards(g, safe.x, safe.z, 4000, SIM.C.ROB_RANGE - 0.8);
+  assert.equal(g.interact(), 'rob', 'the safe can be held up');
+  run(g, Math.ceil(SIM.C.ROB_TIME * 60) + 10, { interact: true });
+  assert.equal(s.player.money, safe.cash, `took $${safe.cash} out of the safe`);
+  assert.ok(s.wanted >= 4, `robbing the safe brings the whole force (${s.wanted} stars)`);
+  ok(`robbed the bank safe for $${safe.cash} and ${s.wanted} stars`);
+
+  walkTowards(g, s.city.interior.exitAt.x, s.city.interior.exitAt.z, 4000, SIM.C.DOOR_RANGE - 1.0);
+  assert.equal(g.interact(), 'leave', 'and you can get back out');
+  assert.ok(!s.player.indoors, 'you are outside again');
+  assert.ok(Math.hypot(s.player.x - door.x, s.player.z - door.z) < 8,
+    'and standing outside the bank you robbed');
+  ok('left the bank through the same door');
+}
+
+// --- 5g. cars do not stick on kerbs -----------------------------------------
+
+section('driving into things');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  const car = s.cars.find(c => c.parked);
+  s.player.driving = true;
+  s.player.car = car;
+  car.ai = false;
+
+  // Aim at a building at a shallow angle: the car should scrape past, not stop.
+  const building = s.city.buildings.reduce((best, b) => {
+    const d = Math.hypot(b.x - car.x, b.z - car.z);
+    return d < Math.hypot(best.x - car.x, best.z - car.z) ? b : best;
+  });
+  car.x = building.x - building.w / 2 - 3;
+  car.z = building.z - building.d / 2 - 3;
+  car.angle = Math.atan2(-(building.x - car.x), -(building.z - car.z)) + 0.6;
+  car.speed = 20;
+
+  const from = { x: car.x, z: car.z };
+  run(g, 120, { forward: true });
+  const travelled = Math.hypot(car.x - from.x, car.z - from.z);
+  assert.ok(travelled > 12,
+    `a car brushing a wall keeps moving instead of sticking (went ${travelled.toFixed(1)}m)`);
+  assert.ok(Math.abs(car.speed) > 5, `and keeps its speed (${car.speed.toFixed(1)} u/s)`);
+  ok(`scraped along a building for ${travelled.toFixed(0)}m without getting stuck`);
 }
 
 // --- 6. health --------------------------------------------------------------

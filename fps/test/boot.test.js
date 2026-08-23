@@ -13,7 +13,7 @@ const ok = label => { passed++; console.log('  ok  ' + label); };
 const ROOT = path.join(__dirname, '..');
 
 function browserSandbox() {
-  const state = { images: 0, rafs: [], elements: {}, drawn: 0 };
+  const state = { images: 0, rafs: [], elements: {}, drawn: 0, oscillators: 0 };
 
   const sandbox = {
     console, Math, Date, JSON, Object, Array, Number, String, Boolean, Symbol,
@@ -79,6 +79,21 @@ function browserSandbox() {
     removeEventListener() {},
     body: { appendChild() {}, style: {} },
     documentElement: { style: {} },
+  };
+  // WebAudio, enough of it that the sound code runs for real in the harness.
+  const audioNode = () => ({
+    connect() {}, disconnect() {}, start() {}, stop() {},
+    frequency: { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {}, linearRampToValueAtTime() {} },
+    gain: { value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {}, linearRampToValueAtTime() {} },
+    Q: { value: 0 }, type: 'sine',
+  });
+  sandbox.AudioContext = function () {
+    this.currentTime = 0;
+    this.destination = audioNode();
+    this.createOscillator = () => { state.oscillators++; return audioNode(); };
+    this.createGain = audioNode;
+    this.createBiquadFilter = audioNode;
+    this.resume = function () {};
   };
   sandbox.HTMLImageElement = function () {};
   sandbox.HTMLCanvasElement = function () {};
@@ -201,6 +216,23 @@ const waitFor = (predicate, ms) => new Promise((resolve, reject) => {
   assert.equal(inp.turnLeft, false, 'releasing ArrowLeft stops the turn');
   assert.equal(inp.sprint, false, 'releasing Shift stops the sprint');
   ok('you can turn while sprinting');
+
+  // Sound: it must actually start and actually play, not fail quietly.
+  assert.ok(ctx.audio && ctx.audio.ctx, 'the audio context was created on the first key');
+  const before = state.oscillators;
+  // Music alone should make noise as time passes.
+  ctx.audio.ctx.currentTime += 5;
+  step(10);
+  assert.ok(state.oscillators > before, `sound is being played (${state.oscillators - before} notes)`);
+
+  // And a specific action should make its own noise.
+  const beforeShot = state.oscillators;
+  ctx.game.giveWeapon('blaster', 20);
+  press('s', 'keydown');
+  step(6);
+  press('s', 'keyup');
+  assert.ok(state.oscillators > beforeShot, 'firing makes a sound');
+  ok(`audio runs: ${state.oscillators} sounds played, including gunfire`);
 
   console.log(`\n${passed} checks passed`);
 })();

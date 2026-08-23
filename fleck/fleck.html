@@ -1276,6 +1276,22 @@ function zenoAttackFrame(kind, facing, elapsed){
   }
   return null;
 }
+function zenoDeathFrames(kind){
+  const k='zdie:'+kind;
+  if(CLIP_LEN[k]===undefined){
+    let n=0; while(n<32 && S['zenomites/'+kind+'_death_'+n]) n++;
+    CLIP_LEN[k]=n;
+  }
+  return CLIP_LEN[k];
+}
+/** The dying clip, HELD on its last frame -- that frame is the corpse. */
+function zenoDeathFrame(kind, elapsed){
+  const n=zenoDeathFrames(kind);
+  if(!n) return null;
+  const i=Math.min(n-1, Math.floor(elapsed*ZENO_ATK_FPS));
+  const img=IMG['zenomites/'+kind+'_death_'+i];
+  return (img && img.complete && img.naturalWidth) ? img : null;
+}
 function zenoEmergeFrames(kind){
   const k='zem:'+kind;
   if(CLIP_LEN[k]===undefined){
@@ -1407,9 +1423,12 @@ function stepFight(dt){
     }
     return;
   }
-  if(G.zenos.length===0){                       // all of them down
+  // `every` is true for an empty list, so require that something actually
+  // came out -- otherwise a fight whose spawns all failed would pay out at once.
+  if(G.zenos.length && G.zenos.every(z=>z.dead)){
     const rw=f.reward;
     G.fight=null;
+    G.zenos.length=0;                           // the bodies clear with it
     G.coins+=rw.coins; G.xp+=rw.xp;
     G.seeds[rw.plant.id]=(G.seeds[rw.plant.id]||0)+1;
     showReward(rw);
@@ -1423,10 +1442,11 @@ function stepFight(dt){
  */
 function stepShooting(dt){
   const a=G.avatar;
-  if(!G.zenos.length){ G.aim=null; a.shootCool=0; return; }
+  if(!G.zenos.some(z=>!z.dead)){ G.aim=null; a.shootCool=0; return; }
 
   let best=null, bd=1e9;
   for(const z of G.zenos){
+    if(z.dead) continue;                        // do not keep shooting a body
     const d=Math.hypot(z.x-a.x, z.y-a.y);
     if(d<bd){ bd=d; best=z; }
   }
@@ -1442,7 +1462,10 @@ function stepShooting(dt){
     best.hp=(best.hp||ZENO_HP[best.kind]||60)-SHOOT_DAMAGE;
     best.hitAt=G.t;                              // drives the white flash
     if(best.hp<=0){
-      G.zenos.splice(G.zenos.indexOf(best),1);
+      // It does NOT disappear. It falls over and stays there until the fight
+      // is done, so the field shows what you have already dealt with.
+      best.dead=true; best.diedAt=G.t; best.moving=false;
+      best.atkAt=undefined; best.emergeAt=undefined;
       G.xp+=8; Snd.play('kill');
       toast('Killed the '+best.kind+'!');
     }
@@ -1450,7 +1473,9 @@ function stepShooting(dt){
 }
 
 function spawnZenomite(c,r,kind,emerging){
-  if(G.zenos.length>=ZENO_MAX) return;
+  // Corpses stay on the field, so count only what is still standing --
+  // otherwise the bodies from wave one block wave two.
+  if(G.zenos.filter(z=>!z.dead).length>=ZENO_MAX) return;
   const p=cellToPx(c,r);
   // Scatter slightly. Two coming out of the same plant on the same pixel look
   // like one creature with a doubled outline.
@@ -1472,6 +1497,7 @@ function stepZenomites(dt){
   const a=G.avatar;
 
   for(const z of G.zenos){
+    if(z.dead) continue;                        // a corpse does nothing
     // Still climbing out of the soil: it cannot walk and cannot swing.
     if(z.emergeAt!==undefined){
       if(G.t-z.emergeAt >= zenoEmergeLength(z.kind)) z.emergeAt=undefined;
@@ -2475,7 +2501,9 @@ function draw(){
       // A still Zenomite holds frame 0 rather than running on the spot.
       const z=e.o;
       let img;
-      if(z.emergeAt!==undefined){
+      if(z.dead){
+        img = zenoDeathFrame(z.kind, G.t-z.diedAt) || zenoFrame(z.kind,'south',0);
+      } else if(z.emergeAt!==undefined){
         // Climbing out of the soil. Falls back to standing still if the clip
         // has not been generated for this one yet.
         img = zenoEmergeFrame(z.kind, G.t-z.emergeAt) || zenoFrame(z.kind,'south',0);
@@ -2497,8 +2525,9 @@ function draw(){
         // Hit flash. Without it there is no way to tell a shot connected --
         // the health bar is on HER, not on them, so a fight read as shooting
         // into nothing until something finally fell over.
-        const hit = z.hitAt!==undefined ? (G.t-z.hitAt)/0.16 : 2;
+        const hit = z.dead ? 2 : (z.hitAt!==undefined ? (G.t-z.hitAt)/0.16 : 2);
         ctx.save();
+        if(z.dead) ctx.filter='grayscale(.45) brightness(.78)';
         if(hit < 1){
           // Knocked back a little, and washed out toward white.
           const push = (1-hit)*4;
@@ -2512,7 +2541,7 @@ function draw(){
         // A health bar over anything that has been hurt, so you can see how
         // much is left rather than counting your own shots.
         const full = ZENO_HP[z.kind]||60;
-        if(z.hp!==undefined && z.hp < full && z.emergeAt===undefined){
+        if(!z.dead && z.hp!==undefined && z.hp < full && z.emergeAt===undefined){
           const bw=Math.max(26, w*.6), bx=e.x-bw/2, by=dy-7;
           ctx.fillStyle='rgba(0,0,0,.45)';
           ctx.fillRect(bx-1, by-1, bw+2, 6);

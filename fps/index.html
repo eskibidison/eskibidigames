@@ -483,6 +483,37 @@ function syncLabels() {
 function buildInterior() {
   buildRoom(S.city.interior.room, S.city.interior.walls);
   buildRoom(S.city.hideout.room, S.city.hideout.walls);
+  furnishHideout();
+}
+
+// The hideout was a bare box with a crate in it. A room you would actually
+// want to hide in needs somewhere to sit.
+function furnishHideout() {
+  var den = S.city.hideout.room;
+  var midZ = den.z0 + den.d / 2;
+
+  var place = function (model, x, z, size, turn) {
+    var thing = build(model, fitScale(model, size, 'h'));
+    thing.position.set(x, 0, z);
+    thing.rotation.y = (turn || 0) + MODEL_YAW;
+    scene.add(thing);
+    return thing;
+  };
+
+  var rug = build('rug', fitScale('rug', 3.4, 'w'));
+  rug.position.set(den.x0 + den.w / 2 - 1.5, 0.03, midZ);
+  scene.add(rug);
+
+  place('sofa', den.x0 + 3.2, midZ, 1.1, Math.PI / 2);
+  place('table', den.x0 + 5.4, midZ, 0.6, 0);
+  place('lamp', den.x0 + 3.0, midZ - 3.4, 1.9, 0);
+  place('lamp', den.x0 + 3.0, midZ + 3.4, 1.9, 0);
+  place('till', den.x0 + den.w - 3.5, den.z0 + 2.2, 1.1, Math.PI);
+
+  // A warm light so it reads as indoors rather than a shed at night.
+  var glow = new THREE.PointLight(0xffd9a0, 1.5, 26);
+  glow.position.set(den.x0 + den.w / 2, 3, midZ);
+  scene.add(glow);
 }
 
 function buildRoom(room, walls) {
@@ -774,6 +805,7 @@ function bindInput() {
   // trackpad turns you too once the pointer is captured.
   function begin() {
     started = true;
+    startAudio();
     startScreen.style.display = 'none';
     if (el.requestPointerLock) { try { el.requestPointerLock(); } catch (err) { /* fine */ } }
   }
@@ -812,7 +844,7 @@ function bindInput() {
       if (!input.interact) game.interact();       // edge-triggered
       input.interact = true;
     }
-    if (!started) { started = true; document.getElementById('start').style.display = 'none'; }
+    if (!started) { started = true; startAudio(); document.getElementById('start').style.display = 'none'; }
     if (['w', 'a', 's', 'd', 'e', ' '].indexOf(k) >= 0) e.preventDefault();
   });
 
@@ -1243,6 +1275,169 @@ function promptText() {
   return '';
 }
 
+// --- sound --------------------------------------------------------------------
+//
+// All of it synthesised with oscillators: no audio files to load, and it works
+// offline. Nothing starts until the first key, because browsers refuse to make
+// noise before you interact with the page.
+
+var audio = {
+  ctx: null,
+  master: null,
+  musicGain: null,
+  started: false,
+  nextBar: 0,
+  step: 0,
+};
+
+function startAudio() {
+  if (audio.started) return;
+  audio.started = true;
+  try {
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    audio.ctx = new Ctx();
+    audio.master = audio.ctx.createGain();
+    audio.master.gain.value = 0.5;
+    audio.master.connect(audio.ctx.destination);
+    audio.musicGain = audio.ctx.createGain();
+    audio.musicGain.gain.value = 0.16;
+    audio.musicGain.connect(audio.master);
+  } catch (err) {
+    audio.ctx = null;
+  }
+}
+
+// One short synthesised note.
+function tone(opts) {
+  if (!audio.ctx) return;
+  try {
+    var now = audio.ctx.currentTime;
+    var osc = audio.ctx.createOscillator();
+    var gain = audio.ctx.createGain();
+    osc.type = opts.type || 'square';
+    osc.frequency.setValueAtTime(opts.from, now);
+    if (opts.to) osc.frequency.exponentialRampToValueAtTime(Math.max(20, opts.to), now + opts.length);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(opts.level || 0.12, now + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + opts.length);
+    var out = osc;
+    if (opts.filter) {
+      var band = audio.ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = opts.filter;
+      band.Q.value = 6;
+      osc.connect(band);
+      out = band;
+    }
+    out.connect(gain);
+    gain.connect(opts.music ? audio.musicGain : audio.master);
+    osc.start(now);
+    osc.stop(now + opts.length + 0.02);
+  } catch (err) { /* never let a sound break a frame */ }
+}
+
+var sfx = {
+  shoot: function () { tone({ from: 760, to: 220, length: 0.10, type: 'square', level: 0.09 }); },
+  punch: function () { tone({ from: 180, to: 70, length: 0.14, type: 'triangle', level: 0.14 }); },
+  hit: function () { tone({ from: 320, to: 520, length: 0.09, type: 'sawtooth', level: 0.08 }); },
+  hurt: function () { tone({ from: 240, to: 90, length: 0.26, type: 'sawtooth', level: 0.13 }); },
+  chest: function () {
+    tone({ from: 420, to: 700, length: 0.16, type: 'triangle', level: 0.12 });
+    setTimeout(function () { tone({ from: 700, to: 950, length: 0.20, type: 'triangle', level: 0.10 }); }, 90);
+  },
+  levelUp: function () {
+    [523, 659, 784, 1047].forEach(function (note, i) {
+      setTimeout(function () { tone({ from: note, length: 0.22, type: 'square', level: 0.11 }); }, i * 110);
+    });
+  },
+  money: function () { tone({ from: 880, to: 1320, length: 0.13, type: 'square', level: 0.10 }); },
+  siren: function () {
+    tone({ from: 620, to: 980, length: 0.34, type: 'sine', level: 0.05 });
+    setTimeout(function () { tone({ from: 980, to: 620, length: 0.34, type: 'sine', level: 0.05 }); }, 340);
+  },
+  // The villager noise: a short vowel grunt through a narrow band filter, with
+  // the pitch sliding about. Close enough that everyone recognises it.
+  villager: function () {
+    var base = 150 + Math.random() * 90;
+    tone({
+      from: base, to: base * (Math.random() < 0.5 ? 1.5 : 0.62),
+      length: 0.20 + Math.random() * 0.12,
+      type: 'sawtooth', level: 0.13, filter: 700 + Math.random() * 500,
+    });
+  },
+};
+
+// A slow four chord loop, one note at a time, so it never gets in the way.
+var MUSIC = [
+  [220, 277, 330], [196, 247, 294], [175, 220, 262], [147, 185, 220],
+];
+
+function updateMusic() {
+  if (!audio.ctx) return;
+  var now = audio.ctx.currentTime;
+  if (now < audio.nextBar) return;
+  audio.nextBar = now + 0.55;
+  var chord = MUSIC[Math.floor(audio.step / 4) % MUSIC.length];
+  var note = chord[audio.step % 3];
+  // Night drops the music into a lower, sparser register.
+  var night = Math.sin((S.timeOfDay - 0.25) * Math.PI * 2) < -0.2;
+  tone({ from: night ? note / 2 : note, length: night ? 1.1 : 0.5, type: 'triangle', level: 0.1, music: true });
+  if (audio.step % 4 === 0) {
+    tone({ from: chord[0] / 2, length: 1.0, type: 'sine', level: 0.12, music: true });
+  }
+  audio.step++;
+}
+
+// Watches the game for things worth hearing, so the simulation stays silent.
+var heard = {
+  darts: 0, health: 100, level: 1, money: 0, melee: -99,
+  chests: 0, siren: 0, villager: 0, hits: 0,
+};
+
+function updateSound(dt) {
+  if (!audio.ctx) return;
+  updateMusic();
+
+  var p = S.player;
+  if (S.darts.length > heard.darts) {
+    var mine = S.darts.filter(function (d) { return d.owner === 'player'; }).length;
+    if (mine) sfx.shoot();
+  }
+  heard.darts = S.darts.length;
+
+  if (p.meleeAt > heard.melee) { heard.melee = p.meleeAt; sfx.punch(); }
+
+  var hits = S.stats.copsDropped + S.stats.civiliansHelped;
+  if (hits > heard.hits) { heard.hits = hits; sfx.hit(); }
+
+  if (p.health < heard.health - 0.5) sfx.hurt();
+  heard.health = p.health;
+
+  if (p.level > heard.level) { heard.level = p.level; sfx.levelUp(); }
+  if (p.money > heard.money) sfx.money();
+  heard.money = p.money;
+
+  if (S.stats.chestsOpened > heard.chests) { heard.chests = S.stats.chestsOpened; sfx.chest(); }
+
+  // Sirens while wanted, and officers muttering at you when they are close.
+  heard.siren -= dt;
+  if (S.wanted > 0 && heard.siren <= 0) {
+    heard.siren = 3.2;
+    sfx.siren();
+  }
+  heard.villager -= dt;
+  if (heard.villager <= 0) {
+    heard.villager = 1.4 + Math.random() * 2.2;
+    var pos = game.playerPos();
+    for (var i = 0; i < S.cops.length; i++) {
+      var cop = S.cops[i];
+      if (cop.state === 'sat') continue;
+      if (Math.hypot(cop.x - pos.x, cop.z - pos.z) < 26) { sfx.villager(); break; }
+    }
+  }
+}
+
 // --- loop ----------------------------------------------------------------------
 
 function frame() {
@@ -1261,6 +1456,7 @@ function frame() {
   syncCamera(dt);
   syncLabels();
   syncSky();
+  updateSound(dt);
   syncHud();
 
   renderer.render(scene, camera);

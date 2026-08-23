@@ -1,7 +1,13 @@
-# GTA Fun — outstanding requests
+# GTA Fun — request list (all done)
 
-Working through these one at a time. Each gets a local commit. Nothing goes to
-GitHub until the whole list is done and verified.
+Every item below is implemented and covered by tests. Kept as a record of what
+was asked for and what each thing turned out to involve.
+
+The one that was not a bug: **turning while sprinting**. The code path was
+fine — a headless test fires the real key events and the player turns. Shift
+plus a movement key plus an arrow is three keys at once, and many laptop
+keyboards will not report the third. Sprint is now automatic after a second of
+running forward, so the combination is never needed.
 
 ## Bugs (blocking play)
 

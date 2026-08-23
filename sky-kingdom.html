@@ -577,11 +577,12 @@ const L = () => LEVELS[game.level];
 let mode = 'title';
 let T = 0, titleT = 0, overT = 0, winT = 0, clearT = 0, flagT = 0, landT = 0;
 let titleSel = 0, clearSel = 0, shopFrom = 'title';
-const shop = { sel:0, msg:'', msgT:0 };
+const shop = { sel:0, tab:0, msg:'', msgT:0 };
 /* CONTINUE only appears once something has actually been cleared */
 function menuItems(){
   const it = [];
   if (unlocked > 0) it.push({ k:'continue', label:'CONTINUE  LV' + (unlocked+1) });
+  if (unlocked > 0) it.push({ k:'pick', label:'LEVEL SELECT' });
   it.push({ k:'new',  label: unlocked > 0 ? 'NEW GAME' : 'START GAME' });
   it.push({ k:'shop', label:'NINJA SHOP' });
   return it;
@@ -592,7 +593,7 @@ let best = 0;
 try { best = parseInt(localStorage.getItem('skykingdom_best') || '0', 10) || 0; } catch(e){ best = 0; }
 function saveBest(v){ if (v > best){ best = v; try { localStorage.setItem('skykingdom_best', String(v)); } catch(e){} } }
 
-const game = { level:0, hp:MAXHEARTS, coins:0, cups:0, bounty:0 };
+const game = { level:0, hp:20, coins:0, cups:0, bounty:0 };
 
 /* ---- the shop: ten characters, coins banked between runs ---- */
 const SKINS = [
@@ -607,6 +608,19 @@ const SKINS = [
   { name:'VAMPIRE',      price:250 },
   { name:'GOLD KNIGHT',  price:350 }
 ];
+/* Permanent upgrades. Bought once, kept forever. */
+const POWERS = [
+  { key:'hearts', name:'HEART UP',    price:120, desc:'PLUS 4 MAX HEARTS' },
+  { key:'magnet', name:'COIN MAGNET', price:150, desc:'COINS COME TO YOU' },
+  { key:'quick',  name:'QUICK STARS', price:180, desc:'THROW THEM FASTER' },
+  { key:'djump',  name:'DOUBLE JUMP', price:200, desc:'JUMP AGAIN IN THE AIR' },
+  { key:'pet',    name:'NINJA PET',   price:220, desc:'A CAT THAT FIGHTS TOO' },
+  { key:'triple', name:'TRIPLE STAR', price:260, desc:'THREE STARS AT ONCE' }
+];
+let powers = {};
+const has = k => !!powers[k];
+const maxHearts = () => MAXHEARTS + (has('hearts') ? 4 : 0);
+
 let wallet = 0, owned = SKINS.map((_,i)=>i===0), equipped = 0, unlocked = 0;
 /* Prove storage really works here rather than silently doing nothing. */
 let storageOK = false;
@@ -624,14 +638,22 @@ function loadShop(){
     if (!(equipped >= 0 && equipped < SKINS.length && owned[equipped])) equipped = 0;
     unlocked = parseInt(localStorage.getItem('skykingdom_unlocked') || '0', 10) || 0;
     unlocked = clamp(unlocked, 0, LEVELS.length-1);
-  } catch(e){ wallet = 0; owned = SKINS.map((_,i)=>i===0); equipped = 0; unlocked = 0; }
+    medals = JSON.parse(localStorage.getItem('skykingdom_medals') || '{}') || {};
+    const pw = JSON.parse(localStorage.getItem('skykingdom_powers') || 'null');
+    powers = {};
+    if (pw) for (const p of POWERS) if (pw[p.key]) powers[p.key] = true;
+  } catch(e){ wallet = 0; owned = SKINS.map((_,i)=>i===0); equipped = 0; unlocked = 0; powers = {}; medals = {}; }
 }
+let medals = {};
+const medalHas = (lv, m) => !!(medals[lv] & (1 << m));
 function saveShop(){
   try {
     localStorage.setItem('skykingdom_wallet', String(wallet));
     localStorage.setItem('skykingdom_owned', JSON.stringify(owned.map(b=>b?1:0)));
     localStorage.setItem('skykingdom_skin', String(equipped));
     localStorage.setItem('skykingdom_unlocked', String(unlocked));
+    localStorage.setItem('skykingdom_powers', JSON.stringify(powers));
+    localStorage.setItem('skykingdom_medals', JSON.stringify(medals));
   } catch(e){ /* private mode — the run still works, it just will not persist */ }
 }
 loadShop();
@@ -684,9 +706,11 @@ function hurt(){
 /* =========================== HUD =========================== */
 function drawHearts(){
   /* twenty hearts: two rows of ten */
-  for (let i=0;i<MAXHEARTS;i++){
+  /* twelve to a row keeps both 20 and 24 hearts inside two rows */
+  const total = maxHearts();
+  for (let i=0;i<total;i++){
     const full = game.hp > i;
-    const col = i % 10, row = (i/10)|0;
+    const col = i % 12, row = (i/12)|0;
     blit(IMG.heart, (full?4:0)*16, 0, 16, 16, 2 + col*12, 1 + row*11);
   }
 }
@@ -705,6 +729,23 @@ function drawTopBar(){
 const WATER_Y = 140, DROWN_Y = 190;
 const GRAV = 0.40, JUMP = -7.0;
 const cam = { x:0, y:0 };
+/* A cat that trails a few steps behind wherever the hero is. */
+const pet = { on:false, x:0, y:0, t:0 };
+function petFollow(tx, ty, lag){
+  if (!has('pet')){ pet.on = false; return; }
+  if (!pet.on){ pet.on = true; pet.x = tx; pet.y = ty; }
+  pet.x = lerp(pet.x, tx, lag);
+  pet.y = lerp(pet.y, ty, lag);
+  pet.t++;
+}
+function drawPet(ox, oy){
+  if (!has('pet') || !pet.on) return;
+  const bob = Math.sin(pet.t*0.12)*1.5;
+  ctx.globalAlpha = .25; ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.ellipse(pet.x+ox+8, pet.y+oy+15, 5, 2, 0, 0, TAU); ctx.fill();
+  ctx.globalAlpha = 1;
+  blit(IMG.aCat, 0, 0, 16, 16, pet.x+ox, pet.y+oy+bob);
+}
 
 function makeHippo(x, y, scale, type){
   const a = beast();
@@ -730,7 +771,7 @@ function startLevel(n){
   game.introT = 150;
   for (let i=0;i<12;i++) spawnNext();
   game.p = { x:52, y:92, vx:0, vy:0, onGround:false, face:1, walkT:0,
-             coyote:0, buffer:0, lastSafe:{x:52,y:92} };
+             coyote:0, buffer:0, airJumps:0, lastSafe:{x:52,y:92} };
   game.dog = { x:52-120, y:108, t:0, angry:0 };
   cam.x = 0; cam.y = 0;
   particles = [];
@@ -776,7 +817,7 @@ function spawnNext(){
   if (Math.random() < 0.85)
     game.pickups.push({ kind:'coin', x: prev.x + prev.w + gap/2, y: Math.min(prev.baseY,y) - rnd(16,30),
                         got:false, seed:rnd(0,10) });
-  if (game.hp < MAXHEARTS && Math.random() < 0.10)
+  if (game.hp < maxHearts() && Math.random() < 0.10)
     game.pickups.push({ kind:'heart', x: x + 12, y: y - 26, got:false, seed:rnd(0,10) });
 }
 
@@ -800,7 +841,7 @@ function respawnSafely(){
   p.x = best.x + best.w/2 - 8;
   p.y = hippoTop(best) - 16;
   p.vx = 0; p.vy = 0;
-  p.onGround = true; p.coyote = 8; p.buffer = 0;
+  p.onGround = true; p.coyote = 8; p.buffer = 0; p.airJumps = has('djump') ? 1 : 0;
   p.lastSafe = { x:p.x, y:p.y };
 }
 
@@ -828,10 +869,12 @@ function updateRun(){
   if (hit('act') || hit('up')) p.buffer = 9;
   if (p.buffer > 0) p.buffer--;
   if (p.coyote > 0) p.coyote--;
-  if (p.buffer > 0 && p.coyote > 0){
-    p.vy = JUMP; p.buffer = 0; p.coyote = 0; p.onGround = false;
+  if (p.buffer > 0 && (p.coyote > 0 || p.airJumps > 0)){
+    const fromGround = p.coyote > 0;
+    if (fromGround) p.coyote = 0; else p.airJumps--;
+    p.vy = JUMP; p.buffer = 0; p.onGround = false;
     Snd.sfxJump();
-    spark(p.x+8, p.y+16, 5, '#dff3ff', 1.6, 14, 0.08);
+    spark(p.x+8, p.y+16, fromGround ? 5 : 8, fromGround ? '#dff3ff' : '#bff0ff', 1.8, 16, 0.08);
   }
   if (!(keys.act || keys.up) && p.vy < -2.2) p.vy += 0.30;
 
@@ -858,15 +901,22 @@ function updateRun(){
     }
   }
   p.onGround = landed;
-  if (landed) p.coyote = 8;
+  if (landed){ p.coyote = 8; p.airJumps = has('djump') ? 1 : 0; }
   if (landed && Math.abs(p.vx) > 0.25) p.walkT++; else if (!landed) p.walkT = 0;
 
   for (const c of game.pickups){
     if (c.got) continue;
+    if (has('magnet')){
+      const d = dist(c.x, c.y, p.x+8, p.y+8);
+      if (d < 52 && d > 1){
+        c.x += (p.x+8 - c.x) * 0.14;
+        c.y += (p.y+8 - c.y) * 0.14;
+      }
+    }
     if (dist(c.x, c.y, p.x+8, p.y+8) < 14){
       c.got = true;
       if (c.kind === 'coin'){ earnCoin(); Snd.sfxCoin(); spark(c.x,c.y,8,'#ffdf6e',2.2,20,0.06); }
-      else { game.hp = Math.min(MAXHEARTS, game.hp+1); Snd.sfxHeart(); spark(c.x,c.y,10,'#ff8aa0',2.2,24,0.04); }
+      else { game.hp = Math.min(maxHearts(), game.hp+1); Snd.sfxHeart(); spark(c.x,c.y,10,'#ff8aa0',2.2,24,0.04); }
     }
   }
 
@@ -891,6 +941,7 @@ function updateRun(){
   }
 
   if (game.inv > 0) game.inv--;
+  petFollow(p.x - 20*p.face, p.y - 2, 0.10);
   cam.x = Math.max(cam.x, p.x - 88);
 }
 
@@ -1004,6 +1055,7 @@ function drawRun(){
   ctx.beginPath(); ctx.ellipse(dx+8, dy+17, 7, 2.5, 0, 0, TAU); ctx.fill();
   ctx.globalAlpha=1;
   blit(dg.angry>0 ? tint(IMG.dog,'#ff8a6a') : IMG.dog, dfr*16, 0, 16, 16, dx, dy);
+  drawPet(-cam.x, 0);
   drawHero2D();
   drawParticles(cam.x, 0);
   drawTopBar();
@@ -1445,13 +1497,24 @@ function updateBossAct(){
 
   if (hero.cool > 0) hero.cool--;
   if (hit('act') && hero.cool === 0){
-    hero.cool = 13;
-    const dd = hero.dir, SS = 3.6;
-    hero.stars.push({ x:hero.x + (dd===2?-6:dd===3?6:0), y:hero.y - 6 + (dd===1?-6:dd===0?6:0),
-                      vx: dd===2?-SS:dd===3?SS:0, vy: dd===1?-SS:dd===0?SS:0, l:130, spin:0 });
+    hero.cool = has('quick') ? 8 : 13;
+    const SS = 3.6;
+    const baseA = [Math.PI/2, -Math.PI/2, Math.PI, 0][hero.dir];
+    const count = has('triple') ? 3 : 1;
+    const ox = hero.x + Math.cos(baseA)*6, oy = hero.y - 6 + Math.sin(baseA)*6;
+    for (let i=0;i<count;i++){
+      const a = baseA + (i - (count-1)/2) * 0.24;
+      hero.stars.push({ x:ox, y:oy, vx:Math.cos(a)*SS, vy:Math.sin(a)*SS, l:130, spin:0 });
+    }
+    /* the cat throws one of its own from wherever it is */
+    if (has('pet') && pet.on){
+      hero.stars.push({ x:pet.x, y:pet.y, vx:Math.cos(baseA)*SS*0.9, vy:Math.sin(baseA)*SS*0.9,
+                        l:120, spin:0 });
+    }
     Snd.sfxStar();
   }
   if (game.inv > 0) game.inv--;
+  petFollow(hero.x - 18, hero.y - 12, 0.09);
   cam.x = lerp(cam.x, clamp(hero.x-W/2, 0, AW-W), 0.14);
   cam.y = lerp(cam.y, clamp(hero.y-H/2, 0, AH-H), 0.14);
 
@@ -1632,6 +1695,7 @@ function drawBossAct(){
     else                blit(skin('idle'), hero.dir*16, 0, 16,16, dx,dy);
   }
 
+  drawPet(ox, oy);
   drawParticles(cam.x, cam.y);
   drawTopBar();
 
@@ -1689,6 +1753,7 @@ function drawTitle(){
     Snd.sfxSelect();
     const k = items[titleSel].k;
     if (k === 'continue')  newGame(unlocked);
+    else if (k === 'pick'){ mode = 'pick'; pick.i = unlocked; pick.msg = 0; }
     else if (k === 'new')  newGame(0);
     else { shopFrom = 'title'; mode = 'shop'; shop.sel = equipped; shop.msgT = 0; }
   }
@@ -1696,48 +1761,89 @@ function drawTitle(){
 
 /* Ten characters in a 5x2 grid plus a BACK button, driven entirely by the
    arrow keys and Space so nothing hides behind an unlabelled key. */
-const SHOP_COLS = 5;
-const SHOP_BACK = SKINS.length;
+/* Two pages: NINJAS (skins) and POWERS (permanent upgrades).
+   sel === TABS_ROW is the tab strip, 0..count-1 the grid, count the BACK button. */
+const TABS_ROW = -1;
+const shopCols  = () => shop.tab === 0 ? 5 : 3;
+const shopCount = () => shop.tab === 0 ? SKINS.length : POWERS.length;
+const shopBack  = () => shopCount();
+const powerOwned = i => has(POWERS[i].key);
+
+/* Back to the title, or back to the level-clear menu if that is where the
+   shop was opened from. */
+function leaveShop(){
+  saveShop();
+  if (shopFrom === 'clear'){ mode = 'clear'; clearT = CLEAR_MENU_AT; clearSel = 0; }
+  else { mode = 'title'; titleSel = 1; }
+}
+
 function updateShop(){
-  const before = shop.sel;
-  if (hit('left'))  shop.sel = shop.sel === SHOP_BACK ? SKINS.length-1 : (shop.sel+SKINS.length-1)%SKINS.length;
-  if (hit('right')) shop.sel = shop.sel === SHOP_BACK ? 0 : (shop.sel+1)%SKINS.length;
+  const before = shop.sel, cols = shopCols(), count = shopCount(), BACK = shopBack();
+  const rows = Math.ceil(count/cols);
+
+  if (hit('left')){
+    if (shop.sel === TABS_ROW){ shop.tab = 1 - shop.tab; shop.sel = TABS_ROW; }
+    else if (shop.sel === BACK){ /* stay */ }
+    else shop.sel = (shop.sel + count - 1) % count;
+  }
+  if (hit('right')){
+    if (shop.sel === TABS_ROW){ shop.tab = 1 - shop.tab; shop.sel = TABS_ROW; }
+    else if (shop.sel === BACK){ /* stay */ }
+    else shop.sel = (shop.sel + 1) % count;
+  }
   if (hit('up')){
-    if (shop.sel === SHOP_BACK) shop.sel = SKINS.length-1;
-    else if (shop.sel >= SHOP_COLS) shop.sel -= SHOP_COLS;
-    else shop.sel = SHOP_BACK;
+    if (shop.sel === TABS_ROW) shop.sel = BACK;
+    else if (shop.sel === BACK) shop.sel = Math.min(count-1, (rows-1)*cols);
+    else if (shop.sel >= cols)  shop.sel -= cols;
+    else shop.sel = TABS_ROW;
   }
   if (hit('down')){
-    if (shop.sel === SHOP_BACK) shop.sel = 0;
-    else if (shop.sel < SHOP_COLS) shop.sel += SHOP_COLS;
-    else shop.sel = SHOP_BACK;
+    if (shop.sel === TABS_ROW) shop.sel = 0;
+    else if (shop.sel === BACK) shop.sel = TABS_ROW;
+    else if (shop.sel + cols < count) shop.sel += cols;
+    else shop.sel = BACK;
   }
   if (shop.sel !== before) Snd.sfxSelect();
   if (shop.msgT > 0) shop.msgT--;
 
   if (hit('act')){
-    if (shop.sel === SHOP_BACK){ Snd.sfxSelect(); leaveShop(); return; }
-    const i = shop.sel, sk = SKINS[i];
-    if (owned[i]){
-      if (equipped === i){ shop.msg = 'ALREADY WEARING IT'; shop.msgT = 90; Snd.sfxSelect(); }
-      else { equipped = i; saveShop(); shop.msg = 'EQUIPPED!'; shop.msgT = 90; Snd.sfxHeart(); }
-    } else if (wallet >= sk.price){
-      wallet -= sk.price; owned[i] = true; equipped = i; saveShop();
-      shop.msg = 'UNLOCKED!'; shop.msgT = 110;
-      Snd.sfxCoin(); flashWhite = 6;
-      for (let k=0;k<18;k++) spark(W/2, 96, 1, '#ffd23a', 3, 46, 0.03);
+    if (shop.sel === TABS_ROW){ shop.tab = 1 - shop.tab; shop.sel = 0; Snd.sfxSelect(); return; }
+    if (shop.sel === BACK){ Snd.sfxSelect(); leaveShop(); return; }
+    if (shop.tab === 0){
+      const i = shop.sel, sk = SKINS[i];
+      if (owned[i]){
+        if (equipped === i){ shop.msg = 'ALREADY WEARING IT'; shop.msgT = 90; Snd.sfxSelect(); }
+        else { equipped = i; saveShop(); shop.msg = 'EQUIPPED!'; shop.msgT = 90; Snd.sfxHeart(); }
+      } else if (wallet >= sk.price){
+        wallet -= sk.price; owned[i] = true; equipped = i; saveShop();
+        shop.msg = 'UNLOCKED!'; shop.msgT = 110;
+        Snd.sfxCoin(); flashWhite = 6;
+        for (let k=0;k<18;k++) spark(W/2, 96, 1, '#ffd23a', 3, 46, 0.03);
+      } else { shop.msg = 'NEED ' + (sk.price - wallet) + ' MORE COINS'; shop.msgT = 100; Snd.sfxHurt(); }
     } else {
-      shop.msg = 'NEED ' + (sk.price - wallet) + ' MORE COINS';
-      shop.msgT = 100; Snd.sfxHurt();
+      const i = shop.sel, pw = POWERS[i];
+      if (powerOwned(i)){ shop.msg = 'YOU ALREADY HAVE IT'; shop.msgT = 90; Snd.sfxSelect(); }
+      else if (wallet >= pw.price){
+        wallet -= pw.price; powers[pw.key] = true; saveShop();
+        if (pw.key === 'hearts') game.hp = maxHearts();
+        shop.msg = 'POWER UNLOCKED!'; shop.msgT = 110;
+        Snd.sfxCoin(); flashWhite = 6;
+        for (let k=0;k<20;k++) spark(W/2, 96, 1, '#bff0ff', 3, 46, 0.03);
+      } else { shop.msg = 'NEED ' + (pw.price - wallet) + ' MORE COINS'; shop.msgT = 100; Snd.sfxHurt(); }
     }
   }
   if (hit('start')){ Snd.sfxSelect(); leaveShop(); }
 }
-/* back to the title, or back to the level-clear menu if that is where we were */
-function leaveShop(){
-  saveShop();
-  if (shopFrom === 'clear'){ mode = 'clear'; clearT = CLEAR_MENU_AT; clearSel = 0; }
-  else { mode = 'title'; titleSel = 1; }
+
+/* the little picture that stands in for each power */
+function drawPowerIcon(i, cx, cy){
+  const k = POWERS[i].key;
+  if (k === 'hearts')      blit(IMG.heart, 4*16, 0, 16, 16, cx-8, cy-8);
+  else if (k === 'magnet') ctx.drawImage(IMG.coin2, ((T*0.16)|0)%4*10, 0, 10, 10, Math.round(cx-5), Math.round(cy-5), 10, 10);
+  else if (k === 'quick')  blitRot(IMG.star, 0, 0, 16, 16, cx, cy, T*0.14);
+  else if (k === 'djump')  blit(skin('jump'), 3*16, 0, 16, 16, cx-8, cy-8);
+  else if (k === 'pet')    blit(IMG.aCat, 0, 0, 16, 16, cx-8, cy-8);
+  else if (k === 'triple') for (let j=-1;j<=1;j++) blitRot(IMG.star, 0, 0, 16, 16, cx+j*7, cy+Math.abs(j)*2, T*0.14 + j);
 }
 
 function drawShop(){
@@ -1751,30 +1857,56 @@ function drawShop(){
   }
   ctx.globalAlpha = 1;
 
-  textCS('NINJA SHOP', 5, '#ffd23a');
-  ctx.drawImage(IMG.coin2, ((T*0.16)|0)%4*10, 0, 10, 10, 82, 16, 10, 10);
-  textS(String(wallet) + ' COINS', 95, 17, '#ffdf6e');
+  /* wallet */
+  ctx.drawImage(IMG.coin2, ((T*0.16)|0)%4*10, 0, 10, 10, 6, 3, 10, 10);
+  textS(String(wallet), 18, 4, '#ffdf6e');
 
-  const cw = 42, ch = 40, ox = Math.round((W - SHOP_COLS*cw)/2), oy = 31;
-  for (let i=0;i<SKINS.length;i++){
-    const cx = ox + (i%SHOP_COLS)*cw, cy = oy + ((i/SHOP_COLS)|0)*ch;
+  /* tabs */
+  const tabs = ['NINJAS', 'POWERS'], tw = 58;
+  for (let i=0;i<2;i++){
+    const x = W/2 - tw + i*tw, on = shop.tab === i, cur = shop.sel === TABS_ROW;
+    ctx.fillStyle = on ? 'rgba(255,210,58,.22)' : 'rgba(0,0,0,.25)';
+    ctx.fillRect(x, 2, tw-2, 13);
+    if (on && cur){ ctx.strokeStyle = (T>>3)%2 ? '#ffffff' : '#ffd23a'; ctx.lineWidth = 1;
+                    ctx.strokeRect(x+0.5, 2.5, tw-3, 12); }
+    textS(tabs[i], x + (tw-2-textW(tabs[i]))/2, 5, on ? '#ffffff' : '#8fb0d8');
+  }
+  if (shop.sel === TABS_ROW) textCS('LEFT / RIGHT TO SWITCH', 19, '#bcd4f0');
+
+  const count = shopCount(), cols = shopCols();
+  const cw = cols === 5 ? 42 : 66, ch = 40;
+  const ox = Math.round((W - cols*cw)/2), oy = 30;
+
+  for (let i=0;i<count;i++){
+    const cx = ox + (i%cols)*cw, cy = oy + ((i/cols)|0)*ch;
     const sel = shop.sel === i;
+    const mine = shop.tab === 0 ? owned[i] : powerOwned(i);
+    const price = shop.tab === 0 ? SKINS[i].price : POWERS[i].price;
     ctx.fillStyle = sel ? 'rgba(255,210,58,.18)' : 'rgba(0,0,0,.22)';
     ctx.fillRect(cx+2, cy, cw-4, ch-4);
-    const img = IMG['skin'+i+'_idle'];
-    if (img){
-      if (owned[i]) ctx.drawImage(img, 0, 0, 16, 16, cx+cw/2-16, cy+3, 32, 32);
-      else {
-        ctx.globalAlpha = 0.75;
-        ctx.drawImage(grey(img), 0, 0, 16, 16, cx+cw/2-16, cy+3, 32, 32);
-        ctx.globalAlpha = 1;
+
+    if (shop.tab === 0){
+      const img = IMG['skin'+i+'_idle'];
+      if (img){
+        if (mine) ctx.drawImage(img, 0, 0, 16, 16, cx+cw/2-16, cy+3, 32, 32);
+        else { ctx.globalAlpha = 0.75; ctx.drawImage(grey(img), 0, 0, 16, 16, cx+cw/2-16, cy+3, 32, 32); ctx.globalAlpha = 1; }
       }
-    }
-    if (equipped === i){
-      textS('ON', cx+cw/2-7, cy+ch-12, '#7dff9a');
-    } else if (!owned[i]){
-      const pr = String(SKINS[i].price);
-      textS(pr, cx+cw/2-textW(pr)/2, cy+ch-12, wallet >= SKINS[i].price ? '#ffdf6e' : '#8b93ad');
+      if (equipped === i) textS('ON', cx+cw/2-7, cy+ch-12, '#7dff9a');
+      else if (!mine){
+        const pr = String(price);
+        textS(pr, cx+cw/2-textW(pr)/2, cy+ch-12, wallet >= price ? '#ffdf6e' : '#8b93ad');
+      }
+    } else {
+      ctx.globalAlpha = mine ? 1 : 0.55;
+      drawPowerIcon(i, cx+cw/2, cy+13);
+      ctx.globalAlpha = 1;
+      const label = POWERS[i].name;
+      textS(label, cx+(cw-textW(label))/2, cy+22, mine ? '#7dff9a' : '#cfd6e4');
+      if (mine) textS('OWNED', cx+(cw-textW('OWNED'))/2, cy+30, '#7dff9a');
+      else {
+        const pr = String(price);
+        textS(pr, cx+(cw-textW(pr))/2, cy+30, wallet >= price ? '#ffdf6e' : '#8b93ad');
+      }
     }
     if (sel){
       ctx.strokeStyle = (T>>3)%2 ? '#ffffff' : '#ffd23a';
@@ -1783,31 +1915,111 @@ function drawShop(){
     }
   }
 
-  const bSel = shop.sel === SHOP_BACK;
+  const bSel = shop.sel === shopBack();
   ctx.fillStyle = bSel ? 'rgba(255,210,58,.20)' : 'rgba(0,0,0,.25)';
   ctx.fillRect(78, 115, 84, 13);
-  if (bSel){
-    ctx.strokeStyle = (T>>3)%2 ? '#ffffff' : '#ffd23a';
-    ctx.lineWidth = 1; ctx.strokeRect(78.5, 115.5, 83, 12);
-  }
+  if (bSel){ ctx.strokeStyle = (T>>3)%2 ? '#ffffff' : '#ffd23a'; ctx.lineWidth = 1;
+             ctx.strokeRect(78.5, 115.5, 83, 12); }
   textCS('BACK', 118, bSel ? '#ffffff' : '#bcd4f0');
 
-  if (shop.sel !== SHOP_BACK){
+  if (shop.sel === shopBack()){
+    textCS(shopFrom === 'clear' ? 'SPACE TO GO BACK TO THE LEVEL' : 'SPACE TO GO BACK', 134, '#bcd4f0');
+    textCS('COINS 1  -  GOLD CUPS 5', 145, '#ffdf6e');
+  } else if (shop.sel === TABS_ROW){
+    textCS('SPACE TO OPEN THIS PAGE', 134, '#bcd4f0');
+    textCS('COINS 1  -  GOLD CUPS 5', 145, '#ffdf6e');
+  } else if (shop.tab === 0){
     const sk = SKINS[shop.sel];
     textCS(sk.name, 134, '#ffffff');
     if (equipped === shop.sel) textCS('WEARING THIS ONE', 145, '#7dff9a');
     else if (owned[shop.sel])  textCS('SPACE TO WEAR IT', 145, '#bff0ff');
     else textCS(sk.price + ' COINS - SPACE TO BUY', 145, wallet >= sk.price ? '#ffdf6e' : '#ff9a9a');
   } else {
-    textCS(shopFrom === 'clear' ? 'SPACE TO GO BACK TO THE LEVEL' : 'SPACE TO GO BACK', 134, '#bcd4f0');
-    textCS('COINS 1  -  GOLD CUPS 5', 145, '#ffdf6e');
+    const pw = POWERS[shop.sel];
+    textCS(pw.desc, 134, '#ffffff');
+    if (powerOwned(shop.sel)) textCS('YOU HAVE THIS POWER', 145, '#7dff9a');
+    else textCS(pw.price + ' COINS - SPACE TO BUY', 145, wallet >= pw.price ? '#ffdf6e' : '#ff9a9a');
   }
   if (shop.msgT > 0 && (shop.msgT>>2)%2) textCS(shop.msg, 104, '#ffd23a');
   drawParticles(0,0);
 }
 
+/* A grid of every level, locked ones dimmed. Medal slots are drawn now and
+   filled in once medals land. */
+const pick = { i:0, msg:0 };
+const PICK_COLS = 5, PICK_BACK = LEVELS.length;
+function updatePick(){
+  const before = pick.i;
+  const rows = Math.ceil(LEVELS.length/PICK_COLS);
+  if (hit('left')  && pick.i !== PICK_BACK) pick.i = (pick.i + LEVELS.length - 1) % LEVELS.length;
+  if (hit('right') && pick.i !== PICK_BACK) pick.i = (pick.i + 1) % LEVELS.length;
+  if (hit('up')){
+    if (pick.i === PICK_BACK) pick.i = Math.min(LEVELS.length-1, (rows-1)*PICK_COLS);
+    else if (pick.i >= PICK_COLS) pick.i -= PICK_COLS;
+    else pick.i = PICK_BACK;
+  }
+  if (hit('down')){
+    if (pick.i === PICK_BACK) pick.i = 0;
+    else if (pick.i + PICK_COLS < LEVELS.length) pick.i += PICK_COLS;
+    else pick.i = PICK_BACK;
+  }
+  if (pick.i !== before) Snd.sfxSelect();
+  if (hit('act') || hit('start')){
+    if (pick.i === PICK_BACK){ Snd.sfxSelect(); mode = 'title'; titleSel = 1; return; }
+    if (pick.i <= unlocked){ Snd.sfxSelect(); newGame(pick.i); }
+    else { Snd.sfxHurt(); pick.msg = 60; }
+  }
+  if (pick.msg > 0) pick.msg--;
+}
+function drawPick(){
+  const g = ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#12203a'); g.addColorStop(1,'#2a4166');
+  ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
+  textCS('CHOOSE A LEVEL', 5, '#ffd23a');
+
+  const cw = 44, chh = 34, ox = Math.round((W - PICK_COLS*cw)/2), oy = 20;
+  for (let i=0;i<LEVELS.length;i++){
+    const cx = ox + (i%PICK_COLS)*cw, cy = oy + ((i/PICK_COLS)|0)*chh;
+    const open = i <= unlocked, sel = pick.i === i;
+    ctx.fillStyle = sel ? 'rgba(255,210,58,.20)' : open ? 'rgba(255,255,255,.09)' : 'rgba(0,0,0,.30)';
+    ctx.fillRect(cx+2, cy, cw-4, chh-4);
+    const num = String(i+1);
+    textS(num, cx + (cw-textW(num))/2, cy+4, open ? '#ffffff' : '#5c6580');
+    /* the level's creature, greyed while locked */
+    const a = ANIMALS[ANIMAL_ORDER[i % ANIMAL_ORDER.length]];
+    const im = IMG[a.img];
+    if (im){
+      if (open) blit(im, 0, 0, a.fw, a.fh, cx+cw/2-a.fw/2, cy+13);
+      else { ctx.globalAlpha = .5; ctx.drawImage(grey(im), 0, 0, a.fw, a.fh, Math.round(cx+cw/2-a.fw/2), cy+13, a.fw, a.fh); ctx.globalAlpha = 1; }
+    }
+    /* three medal slots */
+    for (let m=0;m<3;m++){
+      ctx.fillStyle = medalHas(i, m) ? ['#ffd23a','#bff0ff','#7dff9a'][m] : 'rgba(255,255,255,.16)';
+      ctx.fillRect(cx + cw/2 - 8 + m*6, cy + chh - 8, 4, 4);
+    }
+    if (sel){
+      ctx.strokeStyle = (T>>3)%2 ? '#ffffff' : '#ffd23a';
+      ctx.lineWidth = 1; ctx.strokeRect(cx+2.5, cy+0.5, cw-5, chh-5);
+    }
+  }
+
+  const bSel = pick.i === PICK_BACK;
+  ctx.fillStyle = bSel ? 'rgba(255,210,58,.20)' : 'rgba(0,0,0,.25)';
+  ctx.fillRect(84, 128, 72, 12);
+  if (bSel){ ctx.strokeStyle = (T>>3)%2 ? '#ffffff' : '#ffd23a'; ctx.lineWidth=1; ctx.strokeRect(84.5,128.5,71,11); }
+  textCS('BACK', 130, bSel ? '#ffffff' : '#bcd4f0');
+
+  if (pick.i !== PICK_BACK){
+    const open = pick.i <= unlocked;
+    textCS(LEVELS[pick.i].name, 144, open ? '#ffffff' : '#8b93ad');
+    textCS(open ? 'HOP THE ' + ANIMALS[ANIMAL_ORDER[pick.i % ANIMAL_ORDER.length]].name
+                : 'NOT UNLOCKED YET', 153, open ? '#bcd4f0' : '#ff9a9a');
+  } else textCS('SPACE TO GO BACK', 148, '#bcd4f0');
+  if (pick.msg > 0 && (pick.msg>>2)%2) textCS('BEAT LEVEL ' + (unlocked+1) + ' FIRST', 118, '#ff6a6a');
+}
+
 function newGame(from){
-  game.hp = MAXHEARTS; game.coins = 0; game.cups = 0; game.inv = 0;
+  game.hp = maxHearts(); game.coins = 0; game.cups = 0; game.inv = 0;
   groundCv = null; groundLevel = -1;
   startLevel(clamp(from || 0, 0, LEVELS.length-1));
 }
@@ -1945,6 +2157,7 @@ function step(){
   else if (mode === 'boss')    updateBossAct();
   else if (mode === 'clear')   updateClear();
   else if (mode === 'shop')    updateShop();
+  else if (mode === 'pick')    updatePick();
 }
 function render(){
   ctx.save();
@@ -1960,6 +2173,7 @@ function render(){
   else if (mode === 'over')    drawOver();
   else if (mode === 'victory') drawVictory();
   else if (mode === 'shop')    drawShop();
+  else if (mode === 'pick')    drawPick();
   if (flashWhite > 0){
     ctx.globalAlpha = flashWhite/10; ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H); ctx.globalAlpha=1;
   }

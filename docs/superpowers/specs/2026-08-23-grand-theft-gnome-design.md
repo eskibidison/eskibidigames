@@ -98,7 +98,7 @@ the ground where they can be picked up again, and the goose loses interest.
 ## Rules
 
 Stealing a gnome raises **honk level** by one, to a maximum of five; each level
-keeps one more goose on you. The level decays one step every 12 seconds without
+keeps one more goose on you. The level decays one step every 20 seconds without
 a theft, and is cleared entirely by reaching the shed. Delivering a gnome
 scores a point. There is no way to lose.
 
@@ -117,7 +117,9 @@ carrying. No precision is ever required.
 
 Deliberate, legible, and never at the cost of playability:
 
-- The car drifts left. Every car. Nobody has fixed this.
+- The car drifts left. Every car. Nobody has fixed this. The pull is gentle
+  enough to correct with a tap of steering, or it stops being a joke and
+  starts being the game.
 - The speedometer reads in gnomes per hour.
 - The radio has two stations playing the same song.
 - Entering a car announces "YOU ARE NOW DRIVING: A CAR".

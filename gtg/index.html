@@ -1,0 +1,1133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grand Theft Gnome</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #10131a;
+    color: #eef2ff;
+    font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+  }
+  #wrap {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas {
+    width: min(100vw, 160vh);
+    height: auto;
+    display: block;
+    background: #4a9a52;
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game" width="1000" height="625"></canvas></div>
+<script src="sprites.js"></script>
+<script>
+'use strict';
+
+// ---------------------------------------------------------------------------
+// Grand Theft Gnome. You steal garden gnomes. The police are geese.
+// Art: Kenney Racing Pack (CC0). Roads, houses, fences, gnomes and geese are
+// drawn here in code, because they are rectangles and the pack has none.
+// ---------------------------------------------------------------------------
+
+var CW = 1000, CH = 625;
+var ZOOM = 0.62;
+
+var PITCH = 1000;             // distance between road centre lines
+var ROAD = 220;               // road width
+var HALF_ROAD = ROAD / 2;
+var BLOCKS = 8;
+var WORLD = BLOCKS * PITCH;
+var PAVE = 34;                // pavement band inside each block edge
+
+var WALK_SPEED = 170;
+var GOOSE_SPEED = 140;
+var CAR_MAX = 520, CAR_ACCEL = 600, CAR_BRAKE = 900, CAR_FRICTION = 0.6;
+var CAR_REVERSE = 190;
+var TURN_RATE = 2.4;
+var DRIFT = 0.22;             // every car pulls left. nobody has fixed this.
+                              // Strong enough to notice, weak enough to correct.
+
+var PICKUP_RADIUS = 40;
+var DELIVER_RADIUS = 150;
+var ENTER_RADIUS = 90;
+var GOOSE_TOUCH = 24;
+
+var MAX_HONK = 5;
+var HONK_DECAY = 20;          // gardens are a block apart; 12s decayed
+                              // faster than anyone could walk between them.
+var TRAFFIC = 12;
+var PARKED = 10;
+var PEDS = 16;
+var STEP = 1 / 60;
+
+var SEED = (typeof GTG_SEED !== 'undefined' && GTG_SEED != null) ? GTG_SEED : 1337;
+
+// --- small helpers ---------------------------------------------------------
+
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    var t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+var rnd = mulberry32(SEED);
+
+function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+function dist(ax, ay, bx, by) { return Math.hypot(ax - bx, ay - by); }
+// Sprites point north, so a heading of 0 is up and angles grow clockwise.
+function headingOf(dx, dy) { return Math.atan2(dx, -dy); }
+
+var canvas = document.getElementById('game');
+var ctx = canvas.getContext('2d');
+
+var atlas = new Image();
+var atlasReady = false;
+atlas.onload = function () { atlasReady = true; };
+atlas.src = SPRITES.atlas;
+
+var stats = { drawCalls: 0 };
+var errors = [];
+function note(err) { if (errors.length < 20) errors.push(err && err.message ? err.message : String(err)); }
+
+// --- world -----------------------------------------------------------------
+
+var world = {
+  solids: [],
+  buckets: {},
+  houses: [],
+  gardens: [],
+  fences: [],
+  trees: [],
+  gnomes: [],
+  slicks: [],
+  props: [],
+  shed: { x: 0, y: 0 },
+  spawn: { x: 0, y: 0 },
+
+  // soft solids (fences, trees) stop people but not geese, which can fly.
+  addSolid: function (r, soft) {
+    r.soft = !!soft;
+    var idx = this.solids.length;
+    this.solids.push(r);
+    var gx0 = Math.floor(r.x / PITCH), gx1 = Math.floor((r.x + r.w) / PITCH);
+    var gy0 = Math.floor(r.y / PITCH), gy1 = Math.floor((r.y + r.h) / PITCH);
+    for (var gy = gy0; gy <= gy1; gy++) {
+      for (var gx = gx0; gx <= gx1; gx++) {
+        var key = gx + ':' + gy;
+        (this.buckets[key] || (this.buckets[key] = [])).push(idx);
+      }
+    }
+  },
+
+  // True when a circle of radius r at (x, y) overlaps anything solid.
+  // With hardOnly, fences and trees are ignored — that is the goose's view.
+  blocked: function (x, y, r, hardOnly) {
+    var gx0 = Math.floor((x - r) / PITCH), gx1 = Math.floor((x + r) / PITCH);
+    var gy0 = Math.floor((y - r) / PITCH), gy1 = Math.floor((y + r) / PITCH);
+    for (var gy = gy0; gy <= gy1; gy++) {
+      for (var gx = gx0; gx <= gx1; gx++) {
+        var list = this.buckets[gx + ':' + gy];
+        if (!list) continue;
+        for (var i = 0; i < list.length; i++) {
+          var s = this.solids[list[i]];
+          if (hardOnly && s.soft) continue;
+          if (x + r > s.x && x - r < s.x + s.w && y + r > s.y && y - r < s.y + s.h) return true;
+        }
+      }
+    }
+    return false;
+  },
+
+  onRoad: function (x, y) { return nearLine(x) || nearLine(y); },
+
+  init: function () {
+    var shedI = 4, shedJ = 4;
+
+    for (var j = 0; j < BLOCKS; j++) {
+      for (var i = 0; i < BLOCKS; i++) {
+        var isShed = (i === shedI && j === shedJ);
+        var bx = i * PITCH + HALF_ROAD, by = j * PITCH + HALF_ROAD;
+        var bw = PITCH - ROAD;
+        var gx = bx + PAVE, gy = by + PAVE, gw = bw - PAVE * 2;
+        this.gardens.push({ x: gx, y: gy, w: gw, h: gw, tint: rnd() });
+
+        // House, always in the northern half so gardens face the street.
+        var hw = 250 + rnd() * 120, hh = 180 + rnd() * 70;
+        var hx = gx + 40 + rnd() * (gw - hw - 80);
+        var hy = gy + 30 + rnd() * (gw * 0.3);
+        this.houses.push({ x: hx, y: hy, w: hw, h: hh, wall: rnd(), roof: rnd() });
+        this.addSolid({ x: hx, y: hy, w: hw, h: hh });
+
+        // Fence around the garden with one driveway gap on the street side.
+        var gapW = 190;
+        var gapX = isShed ? gx + gw / 2 - gapW / 2 : gx + 70 + rnd() * (gw - gapW - 140);
+        var T = 10;
+        var segs = [
+          { x: gx, y: gy, w: gw, h: T },
+          { x: gx, y: gy, w: T, h: gw },
+          { x: gx + gw - T, y: gy, w: T, h: gw },
+          { x: gx, y: gy + gw - T, w: gapX - gx, h: T },
+          { x: gapX + gapW, y: gy + gw - T, w: gx + gw - (gapX + gapW), h: T }
+        ];
+        for (var s = 0; s < segs.length; s++) {
+          if (segs[s].w <= 0 || segs[s].h <= 0) continue;
+          this.fences.push(segs[s]);
+          this.addSolid(segs[s], true);
+        }
+
+        // Trees, kept clear of the house and the driveway.
+        var treeCount = 2 + Math.floor(rnd() * 3);
+        var placed = [];
+        for (var t = 0; t < treeCount; t++) {
+          for (var attempt = 0; attempt < 20; attempt++) {
+            var tx = gx + 60 + rnd() * (gw - 120);
+            var ty = gy + 60 + rnd() * (gw - 120);
+            if (tx > hx - 70 && tx < hx + hw + 70 && ty > hy - 70 && ty < hy + hh + 70) continue;
+            if (ty > gy + gw - 90 && tx > gapX - 40 && tx < gapX + gapW + 40) continue;
+            var clash = false;
+            for (var q = 0; q < placed.length; q++) {
+              if (dist(tx, ty, placed[q].x, placed[q].y) < 110) { clash = true; break; }
+            }
+            if (clash) continue;
+            var tree = { x: tx, y: ty, big: rnd() < 0.4 };
+            placed.push(tree);
+            this.trees.push(tree);
+            this.addSolid({ x: tx - 16, y: ty - 16, w: 32, h: 32 }, true);
+            break;
+          }
+        }
+
+        if (isShed) {
+          this.shed.x = gx + gw / 2;
+          this.shed.y = gy + gw + 14;
+          this.spawn.x = this.shed.x;
+          this.spawn.y = (j + 1) * PITCH;
+          continue;                       // the shed's own block keeps no gnome
+        }
+
+        // One gnome per block, clear of the house, the trees and the fence.
+        for (var a = 0; a < 60; a++) {
+          var nx = gx + 50 + rnd() * (gw - 100);
+          var ny = gy + 50 + rnd() * (gw - 100);
+          if (nx > hx - 40 && nx < hx + hw + 40 && ny > hy - 40 && ny < hy + hh + 40) continue;
+          var near = false;
+          for (var k = 0; k < placed.length; k++) {
+            if (dist(nx, ny, placed[k].x, placed[k].y) < 70) { near = true; break; }
+          }
+          if (near) continue;
+          this.gnomes.push({ x: nx, y: ny, taken: false });
+          break;
+        }
+      }
+    }
+
+    // Hedge around the whole town, so you can't drive off the edge of it.
+    var lo = -HALF_ROAD - 90, hi = WORLD + HALF_ROAD, span = hi - lo + 90;
+    this.addSolid({ x: lo, y: lo, w: 90, h: span });
+    this.addSolid({ x: hi, y: lo, w: 90, h: span });
+    this.addSolid({ x: lo, y: lo, w: span, h: 90 });
+    this.addSolid({ x: lo, y: hi, w: span, h: 90 });
+
+    // Oil slicks and roadside clutter, on the roads where they can be hit.
+    for (var o = 0; o < 22; o++) {
+      var line = Math.floor(rnd() * (BLOCKS + 1)) * PITCH;
+      var along = rnd() * WORLD;
+      if (rnd() < 0.5) this.slicks.push({ x: along, y: line + (rnd() - 0.5) * 120 });
+      else this.slicks.push({ x: line + (rnd() - 0.5) * 120, y: along });
+    }
+    for (var pr = 0; pr < 40; pr++) {
+      var pline = Math.floor(rnd() * (BLOCKS + 1)) * PITCH;
+      var palong = rnd() * WORLD;
+      var kind = ['cone', 'barrel', 'tyres', 'rock', 'barrier'][Math.floor(rnd() * 5)];
+      var off = (HALF_ROAD - 22) * (rnd() < 0.5 ? -1 : 1);
+      if (rnd() < 0.5) this.props.push({ kind: kind, x: palong, y: pline + off });
+      else this.props.push({ kind: kind, x: pline + off, y: palong });
+    }
+  }
+};
+
+function nearLine(v) {
+  var k = Math.round(v / PITCH);
+  if (k < 0 || k > BLOCKS) return false;
+  return Math.abs(v - k * PITCH) <= HALF_ROAD;
+}
+
+// --- vehicles --------------------------------------------------------------
+
+var CAR_COLOURS = ['car_black', 'car_blue', 'car_green', 'car_red', 'car_yellow'];
+
+var vehicles = {
+  list: [],
+
+  lanePlace: function (car, along) {
+    if (car.axis === 'h') { car.x = along; car.y = car.line + 55 * car.dir; }
+    else { car.y = along; car.x = car.line - 55 * car.dir; }
+    car.angle = car.axis === 'h'
+      ? (car.dir > 0 ? Math.PI / 2 : -Math.PI / 2)
+      : (car.dir > 0 ? Math.PI : 0);
+  },
+
+  init: function () {
+    for (var n = 0; n < TRAFFIC; n++) {
+      var car = {
+        axis: rnd() < 0.5 ? 'h' : 'v',
+        line: (1 + Math.floor(rnd() * (BLOCKS - 1))) * PITCH,
+        dir: rnd() < 0.5 ? 1 : -1,
+        speed: 150 + rnd() * 110,
+        cruise: 150 + rnd() * 110,
+        colour: CAR_COLOURS[Math.floor(rnd() * CAR_COLOURS.length)],
+        ai: true, spin: 0, x: 0, y: 0, angle: 0
+      };
+      this.lanePlace(car, 200 + rnd() * (WORLD - 400));
+      this.list.push(car);
+    }
+
+    // Parked cars, so there is always something to steal. The first one sits
+    // outside your own shed, because the walk home is long enough already.
+    for (var p = 0; p < PARKED; p++) {
+      var axis = rnd() < 0.5 ? 'h' : 'v';
+      var line = Math.floor(rnd() * (BLOCKS + 1)) * PITCH;
+      var along = 300 + rnd() * (WORLD - 600);
+      var side = rnd() < 0.5 ? -1 : 1;
+      var parked = {
+        axis: axis, line: line, dir: side, speed: 0, cruise: 0,
+        colour: CAR_COLOURS[Math.floor(rnd() * CAR_COLOURS.length)],
+        ai: false, parked: true, spin: 0, x: 0, y: 0, angle: 0
+      };
+      if (p === 0) {
+        parked.axis = 'h';
+        parked.line = world.spawn.y;
+        along = world.spawn.x + 150;
+        parked.dir = 1;
+      }
+      this.lanePlace(parked, along);
+      this.list.push(parked);
+    }
+  },
+
+  nearest: function (x, y) {
+    var best = null, bestD = Infinity;
+    for (var i = 0; i < this.list.length; i++) {
+      var c = this.list[i];
+      if (c === player.car) continue;
+      var d = dist(x, y, c.x, c.y);
+      if (d < bestD) { bestD = d; best = c; }
+    }
+    return { car: best, d: bestD };
+  },
+
+  turn: function (car, cross) {
+    var oldLine = car.line;
+    car.axis = car.axis === 'h' ? 'v' : 'h';
+    car.line = cross;
+    car.dir = rnd() < 0.5 ? 1 : -1;
+    this.lanePlace(car, oldLine);
+    car.speed *= 0.55;
+  },
+
+  update: function (dt) {
+    for (var i = 0; i < this.list.length; i++) {
+      var car = this.list[i];
+      if (!car.ai) continue;
+
+      var target = car.cruise;
+      if (player.state === 'driving' && dist(car.x, car.y, player.x, player.y) < 120) target *= 0.2;
+      car.speed += (target - car.speed) * Math.min(1, dt * 2);
+
+      var along = car.axis === 'h' ? car.x : car.y;
+      var next = along + car.dir * car.speed * dt;
+      var k = car.dir > 0 ? Math.ceil(along / PITCH) : Math.floor(along / PITCH);
+      var cross = k * PITCH;
+      var passing = car.dir > 0 ? next >= cross : next <= cross;
+
+      if (passing && cross >= 0 && cross <= WORLD) {
+        var forced = (cross <= 0 || cross >= WORLD);
+        if (forced || rnd() < 0.3) { this.turn(car, cross); continue; }
+      }
+      if (next < -HALF_ROAD || next > WORLD + HALF_ROAD) { car.dir *= -1; continue; }
+
+      var lane = car.axis === 'h' ? car.line + 55 * car.dir : car.line - 55 * car.dir;
+      if (car.axis === 'h') {
+        car.x = next;
+        car.y += (lane - car.y) * Math.min(1, dt * 4);
+      } else {
+        car.y = next;
+        car.x += (lane - car.x) * Math.min(1, dt * 4);
+      }
+      car.angle = car.axis === 'h'
+        ? (car.dir > 0 ? Math.PI / 2 : -Math.PI / 2)
+        : (car.dir > 0 ? Math.PI : 0);
+    }
+  }
+};
+
+// --- player ----------------------------------------------------------------
+
+var player = {
+  x: 0, y: 0, angle: 0,
+  state: 'onFoot',
+  carrying: 0,
+  car: null,
+  moveX: 0, moveY: 0,
+
+  update: function (dt) {
+    var left = keyDown('ArrowLeft') || keyDown('a');
+    var right = keyDown('ArrowRight') || keyDown('d');
+    var up = keyDown('ArrowUp') || keyDown('w');
+    var down = keyDown('ArrowDown') || keyDown('s');
+
+    if (this.state === 'onFoot') {
+      var vx = (right ? 1 : 0) - (left ? 1 : 0);
+      var vy = (down ? 1 : 0) - (up ? 1 : 0);
+      if (vx || vy) {
+        var len = Math.hypot(vx, vy);
+        vx /= len; vy /= len;
+        this.angle = headingOf(vx, vy);
+        this.moveX = vx; this.moveY = vy;
+        var nx = this.x + vx * WALK_SPEED * dt;
+        if (!world.blocked(nx, this.y, 14)) this.x = nx;
+        var ny = this.y + vy * WALK_SPEED * dt;
+        if (!world.blocked(this.x, ny, 14)) this.y = ny;
+      } else {
+        this.moveX = 0; this.moveY = 0;
+      }
+      pickUpLoose();
+    } else {
+      var car = this.car;
+      if (up) car.speed += CAR_ACCEL * dt;
+      else if (down) car.speed -= CAR_BRAKE * dt;
+      car.speed -= car.speed * CAR_FRICTION * dt;
+      car.speed = clamp(car.speed, -CAR_REVERSE, CAR_MAX);
+
+      var steer = (right ? 1 : 0) - (left ? 1 : 0);
+      var frac = car.speed / CAR_MAX;
+      car.angle += (steer * TURN_RATE - DRIFT) * frac * dt;
+      car.angle += car.spin * dt;
+      car.spin *= Math.exp(-2 * dt);
+
+      var cx = car.x + Math.sin(car.angle) * car.speed * dt;
+      var cy = car.y - Math.cos(car.angle) * car.speed * dt;
+      if (!world.blocked(cx, cy, 28)) { car.x = cx; car.y = cy; }
+      else { car.speed *= -0.3; }
+
+      for (var i = 0; i < world.slicks.length; i++) {
+        var sl = world.slicks[i];
+        if (Math.abs(car.speed) > 200 && dist(car.x, car.y, sl.x, sl.y) < 42) {
+          car.spin = (rnd() < 0.5 ? -1 : 1) * 5;
+        }
+      }
+
+      this.x = car.x; this.y = car.y; this.angle = car.angle;
+    }
+  }
+};
+
+// --- gnomes, theft and delivery --------------------------------------------
+
+var game = { score: 0, best: 0, banner: '', bannerT: 0, toast: '', toastT: 0 };
+var loose = [];
+
+function say(text, seconds) { game.toast = text; game.toastT = seconds || 2; }
+
+function pickUpLoose() {
+  for (var i = loose.length - 1; i >= 0; i--) {
+    if (dist(player.x, player.y, loose[i].x, loose[i].y) < PICKUP_RADIUS) {
+      loose.splice(i, 1);
+      player.carrying++;
+      audio.blip();
+    }
+  }
+}
+
+function nearestGnome() {
+  var best = null, bestD = Infinity;
+  for (var i = 0; i < world.gnomes.length; i++) {
+    var g = world.gnomes[i];
+    if (g.taken) continue;
+    var d = dist(player.x, player.y, g.x, g.y);
+    if (d < bestD) { bestD = d; best = g; }
+  }
+  for (var j = 0; j < loose.length; j++) {
+    var d2 = dist(player.x, player.y, loose[j].x, loose[j].y);
+    if (d2 < bestD) { bestD = d2; best = loose[j]; }
+  }
+  return best;
+}
+
+// Space is the only action key: it does whatever makes sense where you stand.
+function press() {
+  showTitle = false;
+
+  if (player.state === 'onFoot') {
+    for (var i = 0; i < world.gnomes.length; i++) {
+      var g = world.gnomes[i];
+      if (!g.taken && dist(player.x, player.y, g.x, g.y) < PICKUP_RADIUS) {
+        g.taken = true;
+        player.carrying++;
+        wanted.level = Math.min(MAX_HONK, wanted.level + 1);
+        wanted.decay = HONK_DECAY;
+        audio.blip();
+        say('GNOME ACQUIRED', 1.4);
+        return;
+      }
+    }
+  }
+
+  if (player.carrying > 0 && dist(player.x, player.y, world.shed.x, world.shed.y) < DELIVER_RADIUS) {
+    game.score += player.carrying;
+    say(player.carrying === 1 ? '1 GNOME DELIVERED' : player.carrying + ' GNOMES DELIVERED', 2);
+    player.carrying = 0;
+    wanted.level = 0;
+    wanted.geese.length = 0;
+    audio.jingle();
+    if (game.score > game.best) {
+      game.best = game.score;
+      try { localStorage.setItem('gtg-best', String(game.best)); } catch (e) { note(e); }
+    }
+    return;
+  }
+
+  if (player.state === 'driving') {
+    var car = player.car;
+    car.ai = !car.parked;
+    car.cruise = 150 + rnd() * 110;
+    car.axis = Math.abs(Math.sin(car.angle)) > 0.5 ? 'h' : 'v';
+    car.line = car.axis === 'h'
+      ? Math.round(car.y / PITCH) * PITCH
+      : Math.round(car.x / PITCH) * PITCH;
+    car.dir = 1;
+    player.state = 'onFoot';
+    player.car = null;
+    player.x = car.x + Math.cos(car.angle) * 70;
+    player.y = car.y + Math.sin(car.angle) * 70;
+    say('YOU ARE NOW WALKING: ON FOOT', 1.6);
+    return;
+  }
+
+  var found = vehicles.nearest(player.x, player.y);
+  if (found.car && found.d < ENTER_RADIUS) {
+    found.car.ai = false;
+    found.car.speed = 0;
+    player.state = 'driving';
+    player.car = found.car;
+    say('YOU ARE NOW DRIVING: A CAR', 1.8);
+  }
+}
+
+// --- the goose police ------------------------------------------------------
+
+var wanted = {
+  level: 0,
+  geese: [],
+  decay: HONK_DECAY,
+  spawnTimer: 0,
+
+  spawn: function () {
+    // Geese always arrive from behind, so walking away in a straight line works.
+    var back = (player.moveX || player.moveY)
+      ? headingOf(-player.moveX, -player.moveY)
+      : rnd() * Math.PI * 2;
+    for (var a = 0; a < 12; a++) {
+      var ang = back + (rnd() - 0.5) * 1.6;
+      var d = 500 + rnd() * 300;
+      var gx = clamp(player.x + Math.sin(ang) * d, 20, WORLD - 20);
+      var gy = clamp(player.y - Math.cos(ang) * d, 20, WORLD - 20);
+      if (world.blocked(gx, gy, 16, true)) continue;
+      this.geese.push({ x: gx, y: gy, wobble: rnd() * 6.28, flap: 0 });
+      return;
+    }
+  },
+
+  update: function (dt) {
+    if (this.level > 0) {
+      this.decay -= dt;
+      if (this.decay <= 0) { this.level--; this.decay = HONK_DECAY; }
+    }
+    while (this.geese.length > this.level) this.geese.pop();
+
+    this.spawnTimer -= dt;
+    if (this.geese.length < this.level && this.spawnTimer <= 0) {
+      this.spawn();
+      this.spawnTimer = 1.5;
+    }
+
+    for (var i = this.geese.length - 1; i >= 0; i--) {
+      var g = this.geese[i];
+      var dx = player.x - g.x, dy = player.y - g.y;
+      var d = Math.hypot(dx, dy) || 1;
+      g.wobble += dt * 6;
+      g.flap += dt * 9;
+      var wob = Math.sin(g.wobble) * 0.35;
+      var ang = Math.atan2(dy, dx) + wob;
+      var nx = g.x + Math.cos(ang) * GOOSE_SPEED * dt;
+      var ny = g.y + Math.sin(ang) * GOOSE_SPEED * dt;
+      if (!world.blocked(nx, g.y, 12, true)) g.x = nx;
+      if (!world.blocked(g.x, ny, 12, true)) g.y = ny;
+
+      if (d < GOOSE_TOUCH) {
+        var drop = Math.floor(player.carrying / 2);
+        for (var k = 0; k < drop; k++) {
+          loose.push({ x: player.x + (rnd() - 0.5) * 70, y: player.y + (rnd() - 0.5) * 70 });
+        }
+        player.carrying -= drop;
+        this.level = Math.max(0, this.level - 1);
+        this.geese.splice(i, 1);
+        game.banner = 'EMBARRASSED';
+        game.bannerT = 1.8;
+        audio.honk();
+      }
+    }
+  }
+};
+
+// --- pedestrians -----------------------------------------------------------
+
+var CHATTER = ['lovely weather', 'have you seen my gnome?', 'morning!',
+  'nice driving', 'this is my street', 'honk?', 'mind the geese'];
+
+var peds = {
+  list: [],
+  init: function () {
+    for (var i = 0; i < PEDS; i++) {
+      var axis = rnd() < 0.5 ? 'h' : 'v';
+      var line = Math.floor(rnd() * (BLOCKS + 1)) * PITCH;
+      var off = (HALF_ROAD + 15) * (rnd() < 0.5 ? -1 : 1);
+      var along = rnd() * WORLD;
+      this.list.push({
+        axis: axis, dir: rnd() < 0.5 ? 1 : -1,
+        speed: 34 + rnd() * 26,
+        x: axis === 'h' ? along : line + off,
+        y: axis === 'h' ? line + off : along,
+        skin: ['ped_a', 'ped_b', 'ped_c', 'ped_d'][Math.floor(rnd() * 4)],
+        sayT: rnd() * 20, text: ''
+      });
+    }
+  },
+  update: function (dt) {
+    for (var i = 0; i < this.list.length; i++) {
+      var p = this.list[i];
+      var d = p.speed * p.dir * dt;
+      if (p.axis === 'h') p.x += d; else p.y += d;
+      var along = p.axis === 'h' ? p.x : p.y;
+      if (along < 0 || along > WORLD) p.dir *= -1;
+
+      p.sayT -= dt;
+      if (p.sayT <= 0) {
+        p.text = dist(p.x, p.y, player.x, player.y) < 700
+          ? CHATTER[Math.floor(rnd() * CHATTER.length)] : '';
+        p.sayT = 6 + rnd() * 14;
+      }
+    }
+  }
+};
+
+// --- audio (oscillators only, no files) ------------------------------------
+
+var audio = {
+  ctx: null, engine: null, engineGain: null, ready: false,
+  ensure: function () {
+    if (this.ready) return;
+    this.ready = true;
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      this.ctx = new AC();
+      this.engine = this.ctx.createOscillator();
+      this.engineGain = this.ctx.createGain();
+      this.engine.type = 'sawtooth';
+      this.engine.frequency.value = 60;
+      this.engineGain.gain.value = 0;
+      this.engine.connect(this.engineGain);
+      this.engineGain.connect(this.ctx.destination);
+      this.engine.start();
+    } catch (e) { this.ctx = null; note(e); }
+  },
+  tone: function (freq, seconds, type, level) {
+    if (!this.ctx) return;
+    try {
+      var osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+      osc.type = type || 'square';
+      osc.frequency.value = freq;
+      gain.gain.value = level || 0.06;
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + seconds);
+      osc.start();
+      osc.stop(this.ctx.currentTime + seconds);
+    } catch (e) { note(e); }
+  },
+  blip: function () { this.tone(680, 0.12, 'square', 0.05); },
+  honk: function () { this.tone(220, 0.35, 'sawtooth', 0.08); },
+  jingle: function () {
+    this.tone(523, 0.14, 'square', 0.05);
+    this.tone(784, 0.24, 'square', 0.04);
+  },
+  drive: function (speed) {
+    if (!this.ctx || !this.engine) return;
+    try {
+      this.engine.frequency.value = 55 + Math.abs(speed) * 0.35;
+      this.engineGain.gain.value = player.state === 'driving' ? 0.02 : 0;
+    } catch (e) { note(e); }
+  }
+};
+
+// --- input -----------------------------------------------------------------
+
+var held = {};
+function keyDown(k) { return !!held[k]; }
+
+var STATIONS = ['GNOME FM', 'FM GNOME'];
+var radio = { station: 0 };
+var showTitle = true;
+
+document.addEventListener('keydown', function (e) {
+  audio.ensure();
+  var k = e.key;
+  if (k === ' ' || k === 'Spacebar') {
+    if (!held[' ']) { held[' '] = true; try { press(); } catch (err) { note(err); } }
+    if (e.preventDefault) e.preventDefault();
+    return;
+  }
+  if (k === 'r' || k === 'R') {
+    radio.station = (radio.station + 1) % STATIONS.length;
+    say('NOW PLAYING: GNOME', 1.6);
+  }
+  if (k && k.length === 1) held[k.toLowerCase()] = true; else held[k] = true;
+  showTitle = false;
+  if (e.preventDefault && k && k.indexOf('Arrow') === 0) e.preventDefault();
+});
+
+document.addEventListener('keyup', function (e) {
+  var k = e.key;
+  if (k === ' ' || k === 'Spacebar') { held[' '] = false; return; }
+  if (k && k.length === 1) held[k.toLowerCase()] = false; else held[k] = false;
+});
+
+// --- drawing ---------------------------------------------------------------
+
+var cam = { x: 0, y: 0 };
+var view = { x0: 0, y0: 0, x1: 0, y1: 0 };
+
+function sprite(name, x, y, angle, scale) {
+  if (!atlasReady) return;
+  var f = SPRITES.frames[name];
+  if (!f) return;
+  var s = scale || 1;
+  ctx.save();
+  ctx.translate(x, y);
+  if (angle) ctx.rotate(angle);
+  ctx.drawImage(atlas, f[0], f[1], f[2], f[3], -f[2] * s / 2, -f[3] * s / 2, f[2] * s, f[3] * s);
+  ctx.restore();
+  stats.drawCalls++;
+}
+
+function visible(x, y, pad) {
+  return x + pad > view.x0 && x - pad < view.x1 && y + pad > view.y0 && y - pad < view.y1;
+}
+
+function drawGnome(x, y, scale) {
+  var s = scale || 1;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(s, s);
+  ctx.fillStyle = 'rgba(0,0,0,.18)';
+  ctx.beginPath(); ctx.ellipse(0, 10, 14, 6, 0, 0, 6.284); ctx.fill();
+  ctx.fillStyle = '#2f5fbf';            // body
+  ctx.beginPath(); ctx.ellipse(0, 2, 11, 12, 0, 0, 6.284); ctx.fill();
+  ctx.fillStyle = '#f2e3d0';            // beard
+  ctx.beginPath(); ctx.ellipse(0, 4, 8, 8, 0, 0, 6.284); ctx.fill();
+  ctx.fillStyle = '#ffd9b8';            // face
+  ctx.beginPath(); ctx.arc(0, 0, 6, 0, 6.284); ctx.fill();
+  ctx.fillStyle = '#d33d2e';            // hat
+  ctx.beginPath();
+  ctx.moveTo(-9, -2); ctx.lineTo(9, -2); ctx.lineTo(0, -18); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  stats.drawCalls++;
+}
+
+function drawGoose(g) {
+  ctx.save();
+  ctx.translate(g.x, g.y);
+  var lean = Math.sin(g.flap) * 0.18;
+  ctx.rotate(lean);
+  ctx.fillStyle = 'rgba(0,0,0,.2)';
+  ctx.beginPath(); ctx.ellipse(0, 12, 16, 7, 0, 0, 6.284); ctx.fill();
+  ctx.fillStyle = '#fbfbfb';
+  ctx.beginPath(); ctx.ellipse(0, 0, 15, 12, 0, 0, 6.284); ctx.fill();
+  ctx.fillStyle = '#efefef';
+  ctx.beginPath(); ctx.ellipse(-4, 0, 9, 10, 0, 0, 6.284); ctx.fill();
+  ctx.fillStyle = '#fbfbfb';
+  ctx.beginPath(); ctx.arc(11, -4, 6, 0, 6.284); ctx.fill();
+  ctx.fillStyle = '#f0a020';
+  ctx.beginPath();
+  ctx.moveTo(15, -6); ctx.lineTo(24, -4); ctx.lineTo(15, -1); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.arc(12, -6, 1.6, 0, 6.284); ctx.fill();
+  ctx.restore();
+  stats.drawCalls++;
+}
+
+function drawHouse(h) {
+  var wallShades = ['#d9cbb6', '#cdd7e0', '#e0cfc6', '#d3d9c8'];
+  var roofShades = ['#8b4b3c', '#4d5b6b', '#7a5a45', '#5b6a4d'];
+  ctx.fillStyle = 'rgba(0,0,0,.16)';
+  ctx.fillRect(h.x + 8, h.y + 10, h.w, h.h);
+  ctx.fillStyle = wallShades[Math.floor(h.wall * wallShades.length) % wallShades.length];
+  ctx.fillRect(h.x, h.y, h.w, h.h);
+  ctx.fillStyle = roofShades[Math.floor(h.roof * roofShades.length) % roofShades.length];
+  ctx.fillRect(h.x + 14, h.y + 14, h.w - 28, h.h - 28);
+  ctx.fillStyle = 'rgba(255,255,255,.18)';
+  ctx.fillRect(h.x + 14, h.y + h.h / 2 - 4, h.w - 28, 8);
+  stats.drawCalls++;
+}
+
+function render() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#4a9a52';
+  ctx.fillRect(0, 0, CW, CH);
+  ctx.setTransform(ZOOM, 0, 0, ZOOM, -cam.x * ZOOM + CW / 2, -cam.y * ZOOM + CH / 2);
+
+  var halfW = CW / (2 * ZOOM), halfH = CH / (2 * ZOOM);
+  view.x0 = cam.x - halfW; view.x1 = cam.x + halfW;
+  view.y0 = cam.y - halfH; view.y1 = cam.y + halfH;
+
+  // Ground.
+  if (atlasReady) {
+    var f = SPRITES.frames.grass;
+    var tile = f[2];
+    for (var gy = Math.floor(view.y0 / tile) * tile; gy < view.y1; gy += tile) {
+      for (var gx = Math.floor(view.x0 / tile) * tile; gx < view.x1; gx += tile) {
+        ctx.drawImage(atlas, f[0], f[1], f[2], f[3], gx, gy, tile, tile);
+        stats.drawCalls++;
+      }
+    }
+  }
+
+  // Pavements: one light slab per block, gardens laid on top.
+  for (var i = 0; i < world.gardens.length; i++) {
+    var gd = world.gardens[i];
+    if (!visible(gd.x + gd.w / 2, gd.y + gd.w / 2, gd.w)) continue;
+    ctx.fillStyle = '#b9bcc0';
+    ctx.fillRect(gd.x - PAVE, gd.y - PAVE, gd.w + PAVE * 2, gd.h + PAVE * 2);
+    ctx.fillStyle = gd.tint < 0.5 ? '#63b263' : '#5aa858';
+    ctx.fillRect(gd.x, gd.y, gd.w, gd.h);
+    stats.drawCalls++;
+  }
+
+  // Roads.
+  ctx.fillStyle = '#3f4247';
+  for (var k = 0; k <= BLOCKS; k++) {
+    var c = k * PITCH;
+    if (c + HALF_ROAD > view.y0 && c - HALF_ROAD < view.y1) {
+      ctx.fillRect(view.x0, c - HALF_ROAD, view.x1 - view.x0, ROAD);
+      stats.drawCalls++;
+    }
+    if (c + HALF_ROAD > view.x0 && c - HALF_ROAD < view.x1) {
+      ctx.fillRect(c - HALF_ROAD, view.y0, ROAD, view.y1 - view.y0);
+      stats.drawCalls++;
+    }
+  }
+  // Centre lines.
+  ctx.strokeStyle = '#e8e2c8';
+  ctx.lineWidth = 5;
+  ctx.setLineDash([44, 38]);
+  ctx.beginPath();
+  for (var k2 = 0; k2 <= BLOCKS; k2++) {
+    var c2 = k2 * PITCH;
+    if (c2 > view.y0 - ROAD && c2 < view.y1 + ROAD) { ctx.moveTo(view.x0, c2); ctx.lineTo(view.x1, c2); }
+    if (c2 > view.x0 - ROAD && c2 < view.x1 + ROAD) { ctx.moveTo(c2, view.y0); ctx.lineTo(c2, view.y1); }
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+  stats.drawCalls++;
+
+  // Oil slicks sit on the tarmac.
+  for (var o = 0; o < world.slicks.length; o++) {
+    var sl = world.slicks[o];
+    if (visible(sl.x, sl.y, 80)) sprite('oil', sl.x, sl.y, 0, 0.8);
+  }
+
+  // Fences.
+  ctx.fillStyle = '#8d6242';
+  for (var fq = 0; fq < world.fences.length; fq++) {
+    var fe = world.fences[fq];
+    if (!visible(fe.x + fe.w / 2, fe.y + fe.h / 2, Math.max(fe.w, fe.h))) continue;
+    ctx.fillRect(fe.x, fe.y, fe.w, fe.h);
+    stats.drawCalls++;
+  }
+
+  // Houses, then trees over them so canopies overlap roofs.
+  for (var h = 0; h < world.houses.length; h++) {
+    var ho = world.houses[h];
+    if (visible(ho.x + ho.w / 2, ho.y + ho.h / 2, Math.max(ho.w, ho.h))) drawHouse(ho);
+  }
+  for (var t = 0; t < world.trees.length; t++) {
+    var tr = world.trees[t];
+    if (visible(tr.x, tr.y, 120)) sprite(tr.big ? 'tree_large' : 'tree_small', tr.x, tr.y, 0, 0.7);
+  }
+  for (var pp = 0; pp < world.props.length; pp++) {
+    var pr = world.props[pp];
+    if (visible(pr.x, pr.y, 90)) sprite(pr.kind, pr.x, pr.y, 0, 0.55);
+  }
+
+  // The shed, with a delivery ring so it reads as the goal.
+  if (visible(world.shed.x, world.shed.y, 260)) {
+    ctx.strokeStyle = 'rgba(255,255,255,.35)';
+    ctx.lineWidth = 4;
+    ctx.setLineDash([16, 14]);
+    ctx.beginPath();
+    ctx.arc(world.shed.x, world.shed.y, DELIVER_RADIUS, 0, 6.284);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    sprite('shed', world.shed.x, world.shed.y, 0, 0.75);
+    stats.drawCalls++;
+  }
+
+  // Gnomes.
+  for (var gi = 0; gi < world.gnomes.length; gi++) {
+    var gn = world.gnomes[gi];
+    if (!gn.taken && visible(gn.x, gn.y, 40)) drawGnome(gn.x, gn.y, 1.3);
+  }
+  for (var li = 0; li < loose.length; li++) {
+    if (visible(loose[li].x, loose[li].y, 40)) drawGnome(loose[li].x, loose[li].y, 1.3);
+  }
+
+  // Cars.
+  for (var ci = 0; ci < vehicles.list.length; ci++) {
+    var car = vehicles.list[ci];
+    if (visible(car.x, car.y, 140)) sprite(car.colour, car.x, car.y, car.angle, 0.95);
+  }
+
+  // Pedestrians and their small talk.
+  for (var pi = 0; pi < peds.list.length; pi++) {
+    var pe = peds.list[pi];
+    if (!visible(pe.x, pe.y, 90)) continue;
+    sprite(pe.skin, pe.x, pe.y, pe.axis === 'h' ? (pe.dir > 0 ? 1.57 : -1.57) : (pe.dir > 0 ? 3.14 : 0), 0.85);
+    if (pe.text) bubble(pe.x, pe.y - 40, pe.text);
+  }
+
+  // Geese, then the player on top of everything.
+  for (var ge = 0; ge < wanted.geese.length; ge++) drawGoose(wanted.geese[ge]);
+
+  if (player.state === 'onFoot') {
+    sprite('player', player.x, player.y, player.angle, 0.95);
+    for (var cy = 0; cy < Math.min(player.carrying, 5); cy++) {
+      drawGnome(player.x, player.y - 26 - cy * 12, 0.6);
+    }
+  }
+
+  hud();
+}
+
+function bubble(x, y, text) {
+  ctx.font = '20px "Trebuchet MS", sans-serif';
+  var w = ctx.measureText(text).width + 22;
+  ctx.fillStyle = 'rgba(255,255,255,.92)';
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x - w / 2, y - 30, w, 32, 10);
+  else ctx.rect(x - w / 2, y - 30, w, 32);
+  ctx.fill();
+  ctx.fillStyle = '#222';
+  ctx.textAlign = 'center';
+  ctx.fillText(text, x, y - 8);
+  stats.drawCalls++;
+}
+
+function hud() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.textAlign = 'left';
+
+  ctx.fillStyle = 'rgba(12,14,20,.72)';
+  ctx.fillRect(14, 14, 320, 108);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 30px "Trebuchet MS", sans-serif';
+  ctx.fillText('GNOMES: ' + game.score, 28, 48);
+  ctx.font = '18px "Trebuchet MS", sans-serif';
+  ctx.fillStyle = '#c9d0e6';
+  ctx.fillText('CARRYING: ' + player.carrying + '   BEST: ' + game.best, 28, 74);
+
+  ctx.fillText('HONK LEVEL', 28, 104);
+  for (var i = 0; i < MAX_HONK; i++) {
+    ctx.globalAlpha = i < wanted.level ? 1 : 0.22;
+    ctx.font = '20px "Segoe UI Emoji", sans-serif';
+    ctx.fillText('🪿', 150 + i * 26, 106);
+  }
+  ctx.globalAlpha = 1;
+
+  // Speedometer, in the only unit that matters.
+  var speed = player.state === 'driving' ? Math.abs(player.car.speed) : 0;
+  ctx.textAlign = 'right';
+  ctx.font = 'bold 26px "Trebuchet MS", sans-serif';
+  ctx.fillStyle = '#fff';
+  ctx.fillText(Math.round(speed * 0.4) + ' GNOMES PER HOUR', CW - 24, 44);
+  ctx.font = '17px "Trebuchet MS", sans-serif';
+  ctx.fillStyle = '#c9d0e6';
+  ctx.fillText('📻 ' + STATIONS[radio.station] + ' — press R', CW - 24, 70);
+
+  arrowToTarget();
+
+  if (game.toastT > 0) {
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 28px "Trebuchet MS", sans-serif';
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
+    ctx.fillRect(CW / 2 - 230, CH - 96, 460, 44);
+    ctx.fillStyle = '#ffe066';
+    ctx.fillText(game.toast, CW / 2, CH - 64);
+  }
+
+  if (game.bannerT > 0) {
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 64px "Trebuchet MS", sans-serif';
+    ctx.fillStyle = 'rgba(255,80,80,.9)';
+    ctx.fillText(game.banner, CW / 2, CH / 2);
+    ctx.font = '22px "Trebuchet MS", sans-serif';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('a goose took half your gnomes. they are on the floor.', CW / 2, CH / 2 + 38);
+  }
+
+  if (showTitle) titleCard();
+  ctx.textAlign = 'left';
+  stats.drawCalls++;
+}
+
+// Points at the nearest gnome, or at the shed once you are carrying one.
+function arrowToTarget() {
+  var target = player.carrying > 0 ? world.shed : nearestGnome();
+  if (!target) return;
+  var dx = target.x - player.x, dy = target.y - player.y;
+  var d = Math.hypot(dx, dy);
+  if (d < 120) return;
+  var ang = Math.atan2(dy, dx);
+  var radius = 210;
+  var px = CW / 2 + Math.cos(ang) * radius;
+  var py = CH / 2 + Math.sin(ang) * radius;
+  ctx.save();
+  ctx.translate(px, py);
+  ctx.rotate(ang);
+  ctx.fillStyle = player.carrying > 0 ? '#7ee0ff' : '#ffd166';
+  ctx.beginPath();
+  ctx.moveTo(18, 0); ctx.lineTo(-12, 11); ctx.lineTo(-12, -11); ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  ctx.textAlign = 'center';
+  ctx.font = '15px "Trebuchet MS", sans-serif';
+  ctx.fillStyle = '#e9eeff';
+  ctx.fillText(player.carrying > 0 ? 'shed' : 'gnome', px, py + 30);
+  stats.drawCalls++;
+}
+
+function titleCard() {
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(10,12,18,.78)';
+  ctx.fillRect(0, CH / 2 - 150, CW, 300);
+  ctx.fillStyle = '#ffd166';
+  ctx.font = 'bold 62px "Trebuchet MS", sans-serif';
+  ctx.fillText('GRAND THEFT GNOME', CW / 2, CH / 2 - 74);
+  ctx.fillStyle = '#fff';
+  ctx.font = '22px "Trebuchet MS", sans-serif';
+  ctx.fillText('like that other game, but legally distinct', CW / 2, CH / 2 - 36);
+  ctx.font = '20px "Trebuchet MS", sans-serif';
+  ctx.fillStyle = '#c9d0e6';
+  ctx.fillText('Arrows or WASD to move.  SPACE does everything else:', CW / 2, CH / 2 + 6);
+  ctx.fillText('take a gnome, get in a car, get out again, deliver at the shed.', CW / 2, CH / 2 + 34);
+  ctx.fillStyle = '#8ce99a';
+  ctx.fillText('The police are geese. They are slower than you. Walk away.', CW / 2, CH / 2 + 70);
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 22px "Trebuchet MS", sans-serif';
+  ctx.fillText('press any key', CW / 2, CH / 2 + 116);
+  stats.drawCalls++;
+}
+
+// --- loop ------------------------------------------------------------------
+
+function update(dt) {
+  player.update(dt);
+  vehicles.update(dt);
+  wanted.update(dt);
+  peds.update(dt);
+  audio.drive(player.state === 'driving' ? player.car.speed : 0);
+
+  if (game.toastT > 0) game.toastT -= dt;
+  if (game.bannerT > 0) game.bannerT -= dt;
+
+  var lead = 0.12;
+  cam.x += (player.x - cam.x) * lead;
+  cam.y += (player.y - cam.y) * lead;
+}
+
+var last = 0, acc = 0;
+
+function frame(ts) {
+  requestAnimationFrame(frame);
+  if (!last) last = ts;
+  var dt = (ts - last) / 1000;
+  last = ts;
+  if (dt > 0.25) dt = 0.25;
+  acc += dt;
+  var guard = 0;
+  while (acc >= STEP && guard++ < 5) {
+    try { update(STEP); } catch (e) { note(e); }
+    acc -= STEP;
+  }
+  try { render(); } catch (e) { note(e); }
+}
+
+function start() {
+  world.init();
+  vehicles.init();
+  peds.init();
+  player.x = world.spawn.x;
+  player.y = world.spawn.y;
+  cam.x = player.x;
+  cam.y = player.y;
+  try { game.best = parseInt(localStorage.getItem('gtg-best') || '0', 10) || 0; } catch (e) { note(e); }
+  requestAnimationFrame(frame);
+}
+
+// State snapshot for the headless playtests. Top-level bindings are invisible
+// on the sandbox object, so this has to be assigned explicitly.
+// Lets the test bots path around the same obstacles the game uses.
+globalThis.__blocked = function (x, y, r) { return world.blocked(x, y, r); };
+
+globalThis.__p = function () {
+  var untaken = [];
+  for (var i = 0; i < world.gnomes.length; i++) {
+    if (!world.gnomes[i].taken) untaken.push({ x: world.gnomes[i].x, y: world.gnomes[i].y });
+  }
+  return {
+    player: {
+      x: player.x, y: player.y, state: player.state,
+      carrying: player.carrying, angle: player.angle,
+      speed: player.car ? player.car.speed : 0
+    },
+    gnomes: untaken,
+    loose: loose.map(function (l) { return { x: l.x, y: l.y }; }),
+    cars: vehicles.list.map(function (c) { return { x: c.x, y: c.y, speed: c.speed, ai: c.ai, parked: !!c.parked }; }),
+    geese: wanted.geese.map(function (g) { return { x: g.x, y: g.y }; }),
+    peds: peds.list.length,
+    shed: { x: world.shed.x, y: world.shed.y },
+    solids: world.solids.length,
+    score: game.score,
+    honk: wanted.level,
+    drawCalls: stats.drawCalls,
+    errors: errors
+  };
+};
+
+start();
+</script>
+</body>
+</html>

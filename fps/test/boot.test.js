@@ -73,7 +73,10 @@ function browserSandbox() {
     createElementNS: (ns, tag) => element(tag),
     querySelector: () => element('div'),
     getElementById: id => (state.elements[id] || (state.elements[id] = element('div'))),
-    addEventListener() {}, removeEventListener() {},
+    // Record listeners so tests can fire genuine key events at the game.
+    __keys: { keydown: [], keyup: [] },
+    addEventListener(type, fn) { if (this.__keys[type]) this.__keys[type].push(fn); },
+    removeEventListener() {},
     body: { appendChild() {}, style: {} },
     documentElement: { style: {} },
   };
@@ -170,6 +173,34 @@ const waitFor = (predicate, ms) => new Promise((resolve, reject) => {
   assert.ok(ctx.scene.children.length > 50,
     `the world got built into the scene (${ctx.scene.children.length} top-level objects)`);
   ok(`${ctx.scene.children.length} objects in the scene, ${state.images} textures loaded`);
+
+  // Real key events through the real handlers. Reading the keydown chain by eye
+  // is how a bug like "cannot turn while sprinting" slips through.
+  const press = (key, type) => {
+    for (const fn of ctx.document.__keys[type]) fn({ key: key, preventDefault() {} });
+  };
+  const step = frames => {
+    for (let i = 0; i < frames; i++) {
+      state.now += 16.67;
+      const queued = state.rafs.splice(0, state.rafs.length);
+      for (const cb of queued) cb(state.now);
+    }
+  };
+  const inp = ctx.input;
+
+  press('Shift', 'keydown');
+  assert.equal(inp.sprint, true, 'Shift sets sprint');
+  press('ArrowLeft', 'keydown');
+  assert.equal(inp.turnLeft, true, 'ArrowLeft registers while Shift is held');
+
+  const yawBefore = ctx.S.player.yaw;
+  step(40);
+  assert.notEqual(ctx.S.player.yaw, yawBefore, 'holding Shift and ArrowLeft actually turns you');
+  press('ArrowLeft', 'keyup');
+  press('Shift', 'keyup');
+  assert.equal(inp.turnLeft, false, 'releasing ArrowLeft stops the turn');
+  assert.equal(inp.sprint, false, 'releasing Shift stops the sprint');
+  ok('you can turn while sprinting');
 
   console.log(`\n${passed} checks passed`);
 })();

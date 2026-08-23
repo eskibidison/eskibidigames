@@ -1416,6 +1416,7 @@ function stepShooting(dt){
     a.shotAt=G.t;                                // drives the firing animation
     Snd.play('shoot');
     best.hp=(best.hp||ZENO_HP[best.kind]||60)-SHOOT_DAMAGE;
+    best.hitAt=G.t;                              // drives the white flash
     if(best.hp<=0){
       G.zenos.splice(G.zenos.indexOf(best),1);
       G.xp+=8; Snd.play('kill');
@@ -1836,10 +1837,13 @@ const GLYPH = {
   dig:   {disc:'#B98A3C', svg:'<svg width="15" height="15" viewBox="0 0 16 16"><rect x="7" y="1.6" width="2" height="8" fill="#fff"/><path d="M4.2 9h7.6l-1.4 4.8H5.6z" fill="#fff"/></svg>'},
 };
 
-// Rows that have real pre-rendered button art. `harvest`, `plant again` and
-// `dig up` have none yet, so they keep the drawn style, which was sampled from
-// the same original panel.
-const ROW_ART = {info:'btn_whats_this', water:'btn_water'};
+// Rows that have real pre-rendered button art. The menu row and the badge over
+// the plant now show the SAME tool, so what the badge promises is what the
+// button offers: shears for pruning, hammer for digging up.
+// `harvest` and `plant again` still have no art and keep the drawn style,
+// which was sampled from the same original panel.
+const ROW_ART = {info:'btn_whats_this', water:'btn_water',
+                 prune:'icon_shears', dig:'icon_hammer'};
 
 function openMenu(c,r){ menuAt={c,r}; buildMenu(); }
 function closeMenu(){
@@ -1899,8 +1903,13 @@ function menuActions(c,r){
     // first -- neglect no longer kills, it just holds up the harvest.
     // Trees and shrubs are pruned; a watermelon is picked, not pruned, even
     // though both now survive the harvest.
-    if(age >= s.grow && !p.dry)
-      out.push({id:'harvest', label: BEARS_FRUIT.has(s.cat)?'prune':'harvest', g:GLYPH.crop});
+    if(age >= s.grow && !p.dry){
+      // An ornamental tree or shrub is PRUNED with the shears; anything that
+      // fruits is harvested. Same split the badge uses.
+      const cut = readyKind(s)==='shears';
+      out.push({id:'harvest', label: cut?'prune':'harvest', g:GLYPH.crop,
+                art: cut ? 'icon_shears' : null});
+    }
   }
 
   out.push({id:'dig', label:'dig up', g:GLYPH.dig});
@@ -2452,10 +2461,40 @@ function draw(){
         img = zenoFrame(z.kind, z.facing, z.moving ? (z.dist||0) : 0);
       }
       if(img && img.complete && img.naturalWidth){
-        const k=(ZENO_HEIGHT[z.kind]||64)/img.naturalHeight;
-        const w=img.naturalWidth*k, h=img.naturalHeight*k;
+        // NATURAL SIZE. Every clip is imported at one scale per creature,
+        // taken from its walk, so the sprite is already the right size.
+        // Re-normalising each FRAME to a fixed height was making it shrink
+        // whenever a raised arm made the bounding box taller -- which is what
+        // the size-jitter in the attack was.
+        const w=img.naturalWidth, h=img.naturalHeight;
+        const dx=e.x-w/2, dy=e.y-h+HEX_H*.18;
         shadow(e.x, e.y+2, w*.45);
-        ctx.drawImage(img, e.x-w/2, e.y-h+HEX_H*.18, w, h);
+
+        // Hit flash. Without it there is no way to tell a shot connected --
+        // the health bar is on HER, not on them, so a fight read as shooting
+        // into nothing until something finally fell over.
+        const hit = z.hitAt!==undefined ? (G.t-z.hitAt)/0.16 : 2;
+        ctx.save();
+        if(hit < 1){
+          // Knocked back a little, and washed out toward white.
+          const push = (1-hit)*4;
+          ctx.translate(Math.sin(G.t*90)*push*0.4, -push*0.5);
+          ctx.filter = 'brightness('+(1+2.2*(1-hit)).toFixed(2)+') saturate('+
+                       (1-0.7*(1-hit)).toFixed(2)+')';
+        }
+        ctx.drawImage(img, dx, dy, w, h);
+        ctx.restore();
+
+        // A health bar over anything that has been hurt, so you can see how
+        // much is left rather than counting your own shots.
+        const full = ZENO_HP[z.kind]||60;
+        if(z.hp!==undefined && z.hp < full && z.emergeAt===undefined){
+          const bw=Math.max(26, w*.6), bx=e.x-bw/2, by=dy-7;
+          ctx.fillStyle='rgba(0,0,0,.45)';
+          ctx.fillRect(bx-1, by-1, bw+2, 6);
+          ctx.fillStyle='#d8483c';
+          ctx.fillRect(bx, by, bw*Math.max(0,z.hp)/full, 4);
+        }
       }
     }
     else if(e.kind==='zombie'){

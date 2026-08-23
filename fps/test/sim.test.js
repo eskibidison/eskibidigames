@@ -223,9 +223,10 @@ section('nerf guns');
   const s = g.state;
   const gun = nearestReachable(g, s.city.guns);
   assert.ok(gun, 'there is a blaster the player can walk straight to');
+  // Blasters are collected by walking over them now; no key press involved.
   walkTowards(g, gun.x, gun.z, 4000, SIM.C.PICKUP_RANGE - 0.6);
-  assert.equal(g.interact(), 'gun',
-    `picked up a nerf blaster (ended ${Math.hypot(g.playerPos().x - gun.x, g.playerPos().z - gun.z).toFixed(1)}m away)`);
+  assert.ok(gun.taken,
+    `walking over the blaster picked it up (ended ${Math.hypot(g.playerPos().x - gun.x, g.playerPos().z - gun.z).toFixed(1)}m away)`);
   assert.ok(s.player.hasGun && s.player.ammo > 0, 'the blaster came with darts');
   ok(`picked up a nerf blaster with ${s.player.ammo} darts`);
 
@@ -649,6 +650,86 @@ section('jumping');
   ok('no jumping again in mid-air');
 }
 
+// --- 5m. controls that do not need three keys at once -----------------------
+
+section('sprinting and pickups');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+
+  // Keep walking forward and you should break into a run on your own, so no
+  // one has to hold Shift and an arrow key and a direction key together.
+  const covered = () => {
+    const from = { x: s.player.x, z: s.player.z };
+    run(g, 60, { forward: true });
+    return Math.hypot(s.player.x - from.x, s.player.z - from.z);
+  };
+  const firstSecond = covered();
+  covered();
+  const laterSecond = covered();
+  assert.ok(laterSecond > firstSecond + 1.5,
+    `you speed up on your own (${firstSecond.toFixed(1)}m then ${laterSecond.toFixed(1)}m)`);
+  ok(`auto-sprint: ${firstSecond.toFixed(1)}m in the first second, ${laterSecond.toFixed(1)}m once running`);
+
+  run(g, 30, { forward: false });
+  const afterStopping = covered();
+  assert.ok(afterStopping < laterSecond, 'stopping drops you back to a walk');
+  ok('stopping resets you to walking pace');
+}
+
+section('dropping and picking up');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  g.giveWeapon('rapid', 37);
+  assert.equal(s.player.weapon, 'rapid', 'holding the rapid blaster');
+
+  assert.ok(g.dropWeapon(), 'dropped it');
+  assert.equal(s.player.weapon, null, 'hands are empty');
+  assert.equal(g.currentWeapon(), null, 'and nothing is equipped');
+  ok('dropped a blaster with G');
+
+  // Walking over it picks it up again, ammo intact, with no key press.
+  run(g, 180);
+  assert.equal(s.player.weapon, 'rapid', 'walking over it picked it back up');
+  assert.equal(s.player.ammoFor.rapid, 37, 'with the same 37 darts still in it');
+  ok('walked over a dropped blaster and picked it up automatically, ammo intact');
+
+  // A second blaster on the floor should top up ammo rather than be ignored.
+  const before = s.player.ammoFor.rapid;
+  s.city.guns.push({ x: s.player.x, z: s.player.z, taken: false, weapon: 'rapid', ammo: 20 });
+  run(g, 10);
+  assert.equal(s.player.ammoFor.rapid, before + 20, 'a second one adds its darts');
+  ok('walking over more ammo tops you up');
+}
+
+section('doors open for you');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  const den = s.city.doors.filter(d => d.kind === 'hideout')[0];
+
+  // Stop outside the trigger, then walk into it. Walking all the way up with
+  // the bot would trip the door early and then carry it onto the exit mat.
+  walkTowards(g, den.x, den.z, 6000, SIM.C.AUTO_DOOR_RANGE + 1.4);
+  faceTowards(g, den.x, den.z);
+  run(g, 22, { forward: true });
+  assert.equal(s.player.indoors, 'hideout', 'the door opened as you walked into it');
+  ok('doors open automatically when you walk up to them');
+
+  // And punching one works too.
+  const g2 = SIM.createGame();
+  const den2 = g2.state.city.doors.filter(d => d.kind === 'hideout')[1];
+  // Stand at the door directly: the bot walks in straight lines and this one
+  // has a building in the way. What is under test is the punch, not pathing.
+  g2.state.player.x = den2.x;
+  g2.state.player.z = den2.z + SIM.C.DOOR_RANGE - 0.6;
+  faceTowards(g2, den2.x, den2.z);
+  assert.ok(g2.melee(), 'the punch landed on the door');
+  assert.equal(g2.state.player.indoors, 'hideout', 'and put you inside');
+  ok('you can punch a door through as well');
+}
+
 // --- 6. health --------------------------------------------------------------
 
 section('health');
@@ -688,7 +769,7 @@ section('endurance');
 
   // Peaks, not the final frame: a soaking clears the streets, so the last
   // reading says nothing about whether the caps ever held under load.
-  let peakCops = 0, peakCars = 0, peakDarts = 0, soakings = 0;
+  let peakCops = 0, peakCars = 0, peakDarts = 0, soakings = 0, peakBodies = 0;
   for (let i = 0; i < 60 * 90; i++) {
     const input = Object.assign(noInput(), {
       forward: (i % 600) < 400,
@@ -697,7 +778,10 @@ section('endurance');
     });
     if (i % 1200 === 0) g.raiseWanted(5);
     g.update(STEP, input);
-    peakCops = Math.max(peakCops, s.cops.length);
+    // The cap is on officers still fighting; downed ones stay as scenery and
+    // are only cleared once you are far away.
+    peakCops = Math.max(peakCops, s.cops.filter(c => c.state !== 'sat').length);
+    peakBodies = Math.max(peakBodies, s.cops.length);
     peakDarts = Math.max(peakDarts, s.darts.length);
     peakCars = Math.max(peakCars, s.cars.filter(c => c.kind === 'police').length);
   }
@@ -706,14 +790,15 @@ section('endurance');
   assert.ok(peakCars > 0, 'police cars actually turned up during the run');
 
   assert.ok(Number.isFinite(s.player.x) && Number.isFinite(s.player.z), 'the player is somewhere real');
-  assert.ok(peakCops <= SIM.C.MAX_COPS, `officers stayed capped (peaked at ${peakCops})`);
+  assert.ok(peakCops <= SIM.C.MAX_COPS, `officers on their feet stayed capped (peaked at ${peakCops})`);
+  assert.ok(peakBodies <= SIM.C.MAX_COPS + 40, `bodies do not pile up without limit (peaked at ${peakBodies})`);
   assert.ok(peakDarts < 400, `darts never piled up (peaked at ${peakDarts})`);
   assert.ok(s.wanted <= SIM.C.MAX_WANTED, 'the wanted level never passes five');
   assert.ok(s.events.length <= 6, 'the message list stays bounded');
   assert.ok(peakCars <= SIM.C.MAX_POLICE_CARS, `police cars stayed capped (peaked at ${peakCars})`);
   for (const c of s.cars) assert.ok(Number.isFinite(c.x) && Number.isFinite(c.z), 'cars stay real');
-  ok(`90s of chaos: peaked at ${peakCops} cops, ${peakCars} police cars, ` +
-    `${peakDarts} darts, soaked ${soakings}x — all bounded`);
+  ok(`90s of chaos: peaked at ${peakCops} officers fighting (${peakBodies} counting the fallen), ` +
+    `${peakCars} police cars, ${peakDarts} darts, soaked ${soakings}x — all bounded`);
 }
 
 console.log(`\n${passed} checks passed`);

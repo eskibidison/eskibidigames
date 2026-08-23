@@ -119,6 +119,11 @@
 
     MAX_COPS: 10,
     MAX_POLICE_CARS: 5,
+    AUTO_SPRINT_AFTER: 1.1,   // keep running forward and you break into a jog
+    DROP_RANGE: 1.8,
+    AUTO_DOOR_RANGE: 2.2,
+    AUTO_DOOR_FACING: 0.5,    // radians off straight-ahead that still counts
+
     JUMP_SPEED: 6.4,
     GRAVITY: 18,
 
@@ -292,20 +297,26 @@
     var room = { x0: -142, z0: 158, w: 24, d: 20, wall: 4.2 };
     var interior = {
       room: room,
-      spawn: { x: room.x0 + room.w - 3.5, z: room.z0 + room.d / 2 },
+      spawn: { x: room.x0 + room.w - 6, z: room.z0 + room.d / 2 },
       exitAt: { x: room.x0 + room.w - 1.2, z: room.z0 + room.d / 2 },
       walls: [],
     };
     var T = 0.9;
-    var gapHalf = 2.4;
     var midZ = room.z0 + room.d / 2;
-    // Three solid walls, and a fourth with a doorway gap in the middle.
+    // Sealed on all four sides. There is no gap to wander out of: you leave by
+    // stepping into the exit mat, which teleports you back to the street. When
+    // the room had a doorway you could walk out of it into open nothing while
+    // the game still believed you were indoors.
     interior.walls.push({ x0: room.x0 - T, z0: room.z0 - T, x1: room.x0, z1: room.z0 + room.d + T });
     interior.walls.push({ x0: room.x0 - T, z0: room.z0 - T, x1: room.x0 + room.w + T, z1: room.z0 });
     interior.walls.push({ x0: room.x0 - T, z0: room.z0 + room.d, x1: room.x0 + room.w + T, z1: room.z0 + room.d + T });
-    interior.walls.push({ x0: room.x0 + room.w, z0: room.z0 - T, x1: room.x0 + room.w + T, z1: midZ - gapHalf });
-    interior.walls.push({ x0: room.x0 + room.w, z0: midZ + gapHalf, x1: room.x0 + room.w + T, z1: room.z0 + room.d + T });
+    interior.walls.push({ x0: room.x0 + room.w, z0: room.z0 - T, x1: room.x0 + room.w + T, z1: room.z0 + room.d + T });
     for (var w = 0; w < interior.walls.length; w++) boxes.push(interior.walls[w]);
+    interior.exitZone = {
+      x0: room.x0 + room.w - 3, z0: midZ - 2.2,
+      x1: room.x0 + room.w - 0.4, z1: midZ + 2.2,
+    };
+    interior.bounds = { x0: room.x0, z0: room.z0, x1: room.x0 + room.w, z1: room.z0 + room.d };
 
     // The prize, at the back of the room.
     loot.push({
@@ -323,17 +334,21 @@
     var den = { x0: -142, z0: 108, w: 14, d: 12, wall: 3.6 };
     var hideout = {
       room: den,
-      spawn: { x: den.x0 + den.w - 3, z: den.z0 + den.d / 2 },
+      spawn: { x: den.x0 + den.w - 5.5, z: den.z0 + den.d / 2 },
       exitAt: { x: den.x0 + den.w - 1.1, z: den.z0 + den.d / 2 },
       walls: [],
     };
-    var HT = 0.8, hgap = 2.0, hmid = den.z0 + den.d / 2;
+    var HT = 0.8, hmid = den.z0 + den.d / 2;
     hideout.walls.push({ x0: den.x0 - HT, z0: den.z0 - HT, x1: den.x0, z1: den.z0 + den.d + HT });
     hideout.walls.push({ x0: den.x0 - HT, z0: den.z0 - HT, x1: den.x0 + den.w + HT, z1: den.z0 });
     hideout.walls.push({ x0: den.x0 - HT, z0: den.z0 + den.d, x1: den.x0 + den.w + HT, z1: den.z0 + den.d + HT });
-    hideout.walls.push({ x0: den.x0 + den.w, z0: den.z0 - HT, x1: den.x0 + den.w + HT, z1: hmid - hgap });
-    hideout.walls.push({ x0: den.x0 + den.w, z0: hmid + hgap, x1: den.x0 + den.w + HT, z1: den.z0 + den.d + HT });
+    hideout.walls.push({ x0: den.x0 + den.w, z0: den.z0 - HT, x1: den.x0 + den.w + HT, z1: den.z0 + den.d + HT });
     for (var hw = 0; hw < hideout.walls.length; hw++) boxes.push(hideout.walls[hw]);
+    hideout.exitZone = {
+      x0: den.x0 + den.w - 3, z0: hmid - 2,
+      x1: den.x0 + den.w - 0.4, z1: hmid + 2,
+    };
+    hideout.bounds = { x0: den.x0, z0: den.z0, x1: den.x0 + den.w, z1: den.z0 + den.d };
 
     // Armouries: shopfronts on the pavement where you spend what you steal.
     var stores = [
@@ -414,7 +429,7 @@
         fireCooldown: 0, hurtAt: -99, meleeAt: -99, robbing: 0, robTarget: null,
         forcing: 0, forceTarget: null,
         soaked: false, soakTimer: 0, bob: 0,
-        y: 0, vy: 0, onGround: true
+        y: 0, vy: 0, onGround: true, runTimer: 0
       },
       cars: [],
       cops: [],
@@ -562,12 +577,21 @@
       var len = Math.hypot(mx, mz);
       if (len > 0) {
         mx /= len; mz /= len;
-        var speed = input.sprint ? C.SPRINT : C.WALK;
+        // Sprint on its own after a moment of running forward. Shift plus W
+        // plus an arrow key is three keys at once, and plenty of laptop
+        // keyboards simply will not report the third one.
+        if (input.forward && !input.back) p.runTimer += dt; else p.runTimer = 0;
+        var running = input.sprint || p.runTimer > C.AUTO_SPRINT_AFTER;
+        var speed = running ? C.SPRINT : C.WALK;
         p.bob += dt * speed;
         var nx = p.x + mx * speed * dt;
         if (!blocked(nx, p.z, C.PLAYER_R)) p.x = nx;
         var nz = p.z + mz * speed * dt;
         if (!blocked(p.x, nz, C.PLAYER_R)) p.z = nz;
+      } else {
+        // Standing still drops you back to a walk. Without this you sprint for
+        // ever after one run.
+        p.runTimer = 0;
       }
     }
 
@@ -1056,6 +1080,16 @@
       var fx = forwardX(p.yaw), fz = forwardZ(p.yaw);
       var landed = false;
 
+      // A door in front of you gives way to a shoulder rather than a fist.
+      var door = nearestDoor();
+      if (door.d < C.DOOR_RANGE && door.at && door.kind === 'in') {
+        if (door.at.kind === 'bank') enterBank(door.at); else enterHideout(door.at);
+        p.doorCooldown = 1.2;
+        raiseWanted(1);
+        say('you shouldered the door in', 2);
+        return true;
+      }
+
       var targets = state.cops.concat(state.civilians);
       for (var i = 0; i < targets.length; i++) {
         var who = targets[i];
@@ -1124,6 +1158,7 @@
         var e = (p.indoors === 'hideout' ? city.hideout : city.interior).exitAt;
         return { kind: 'out', d: dist(pos.x, pos.z, e.x, e.z) };
       }
+      if (p.doorCooldown > 0) return { kind: 'in', d: Infinity, at: null };
       var best = null, bestD = Infinity;
       for (var i = 0; i < city.doors.length; i++) {
         var door = city.doors[i];
@@ -1136,6 +1171,7 @@
     function enterBank(door) {
       var p = state.player;
       p.indoors = 'bank';
+      p.doorCooldown = 1.2;
       p.returnTo = { x: door.x, z: door.z + 3 };
       p.x = city.interior.spawn.x;
       p.z = city.interior.spawn.z;
@@ -1146,6 +1182,7 @@
     function enterHideout(door) {
       var p = state.player;
       p.indoors = 'hideout';
+      p.doorCooldown = 1.2;
       p.returnTo = { x: door.x, z: door.z + 3 };
       p.x = city.hideout.spawn.x;
       p.z = city.hideout.spawn.z;
@@ -1156,6 +1193,7 @@
     function leaveBank() {
       var p = state.player;
       p.indoors = false;
+      p.doorCooldown = 1.2;
       var back = p.returnTo || { x: spawnX, z: spawnZ };
       p.x = back.x;
       p.z = back.z;
@@ -1277,6 +1315,50 @@
       return 'none';
     }
 
+    // Blasters and ammo are picked up simply by walking over them.
+    function updateGroundPickups() {
+      var p = state.player;
+      if (p.driving || p.soaked) return;
+      var pos = playerPos();
+      for (var i = 0; i < city.guns.length; i++) {
+        var lying = city.guns[i];
+        if (lying.taken) continue;
+        if (lying.cool > 0) { lying.cool -= 1 / 60; continue; }
+        if (dist(pos.x, pos.z, lying.x, lying.z) > C.PICKUP_RANGE) continue;
+        lying.taken = true;
+        var id = lying.weapon || 'blaster';
+        var already = p.owned[id];
+        var gun = giveWeapon(id, lying.ammo);
+        say(already ? '+' + (lying.ammo == null ? gun.mag : lying.ammo) + ' darts'
+                    : 'picked up a ' + gun.name, 2);
+      }
+    }
+
+    // Puts your current blaster on the pavement, ammo and all.
+    function dropWeapon() {
+      var p = state.player;
+      var gun = currentWeapon();
+      if (!gun || p.driving) return false;
+      var pos = playerPos();
+      city.guns.push({
+        x: pos.x + forwardX(p.yaw) * C.DROP_RANGE,
+        z: pos.z + forwardZ(p.yaw) * C.DROP_RANGE,
+        taken: false, weapon: gun.id, ammo: p.ammoFor[gun.id] || 0,
+        // Do not hoover it straight back up on the next step.
+        cool: 1.2,
+      });
+      p.owned[gun.id] = false;
+      p.ammoFor[gun.id] = 0;
+      p.weapon = null;
+      for (var i = 0; i < WEAPONS.length; i++) {
+        if (p.owned[WEAPONS[i].id]) { p.weapon = WEAPONS[i].id; break; }
+      }
+      p.hasGun = !!p.weapon;
+      p.ammo = p.weapon ? p.ammoFor[p.weapon] : 0;
+      say('dropped the ' + gun.name, 1.8);
+      return true;
+    }
+
     function nearestGun() {
       var pos = playerPos(), best = null, bestD = Infinity;
       for (var i = 0; i < city.guns.length; i++) {
@@ -1307,6 +1389,59 @@
         state.stats.brokeIn++;
         enterHideout(door);
       }
+    }
+
+    function inRect(x, z, r) { return x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1; }
+
+    // Which room, if any, the player is standing in. Derived from position, so
+    // the flag and the world can never drift apart.
+    function roomAt(x, z) {
+      if (inRect(x, z, city.interior.bounds)) return 'bank';
+      if (inRect(x, z, city.hideout.bounds)) return 'hideout';
+      return false;
+    }
+
+    // Stepping onto the mat by the door puts you back on the street.
+    function updateExitMat() {
+      var p = state.player;
+      if (!p.indoors) return;
+      var zone = (p.indoors === 'hideout' ? city.hideout : city.interior).exitZone;
+      if (inRect(p.x, p.z, zone)) leaveBank();
+    }
+
+    // Doors open as you walk into them, the way shop doors do. You still have
+    // to be heading for the door rather than wandering past it.
+    function updateAutoDoors(dt, input) {
+      var p = state.player;
+      if (p.driving || p.soaked || state.store.open) return;
+      // Only when you are actually walking into it, and not mid-robbery.
+      if (!input.forward || p.robTarget) return;
+      p.doorCooldown = Math.max(0, (p.doorCooldown || 0) - dt);
+      if (p.doorCooldown > 0) return;
+
+      var pos = playerPos();
+      var door = nearestDoor();
+      if (door.d > C.AUTO_DOOR_RANGE) return;
+
+      if (door.kind === 'out') {
+        if (headingFor(pos, (p.indoors === 'hideout' ? city.hideout : city.interior).exitAt)) {
+          leaveBank();
+          p.doorCooldown = 1.2;
+        }
+        return;
+      }
+      if (!door.at || !headingFor(pos, door.at)) return;
+      if (door.at.kind === 'bank') enterBank(door.at); else enterHideout(door.at);
+      p.doorCooldown = 1.2;
+    }
+
+    // True when the player is walking roughly towards a point.
+    function headingFor(pos, at) {
+      var p = state.player;
+      var dx = at.x - pos.x, dz = at.z - pos.z;
+      var len = Math.hypot(dx, dz) || 1;
+      var dot = (dx / len) * forwardX(p.yaw) + (dz / len) * forwardZ(p.yaw);
+      return Math.acos(clamp(dot, -1, 1)) < C.AUTO_DOOR_FACING;
     }
 
     function updateRobbery(dt, input) {
@@ -1366,6 +1501,11 @@
           if (p.driving && p.car) driveCar(dt, input); else moveOnFoot(dt, input);
           updateRobbery(dt, input);
           updateBreakIn(dt, input);
+          updateAutoDoors(dt, input);
+          updateExitMat();
+          updateGroundPickups();
+          // Position decides where you are, not a flag someone forgot to clear.
+          p.indoors = roomAt(p.x, p.z);
         }
       }
 
@@ -1414,6 +1554,7 @@
       nearestCar: nearestCar,
       nearestGun: nearestGun,
       melee: tryMelee,
+      dropWeapon: dropWeapon,
       nearestStore: nearestStore,
       nearestDoor: nearestDoor,
       currentWeapon: currentWeapon,

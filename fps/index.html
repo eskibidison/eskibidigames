@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GTA Fun</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1017;
+    font-family: "Trebuchet MS", "Segoe UI", system-ui, sans-serif; color: #fff; }
+  canvas { display: block; }
+
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px;
+    margin: -13px 0 0 -13px; }
+  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: rgba(255,255,255,.85);
+    box-shadow: 0 0 3px rgba(0,0,0,.9); }
+  #crosshair::before { left: 12px; top: 0; width: 2px; height: 26px; }
+  #crosshair::after { top: 12px; left: 0; height: 2px; width: 26px; }
+
+  .panel { position: absolute; background: rgba(10,13,20,.62); border-radius: 12px;
+    padding: 10px 14px; backdrop-filter: blur(3px); }
+
+  #left { left: 18px; bottom: 18px; min-width: 250px; }
+  #health-track { height: 15px; background: rgba(255,255,255,.14); border-radius: 8px; overflow: hidden; }
+  #health-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #ff6b5e, #ffd166, #8ce99a);
+    transition: width .15s linear; }
+  #health-text { font-size: 13px; color: #c9d0e6; margin-top: 5px; letter-spacing: .5px; }
+  #ammo { font-size: 26px; font-weight: bold; margin-top: 8px; }
+  #ammo small { font-size: 14px; color: #9aa3bd; font-weight: normal; }
+
+  #right { right: 18px; top: 18px; text-align: right; }
+  #money { font-size: 34px; font-weight: bold; color: #8ce99a; }
+  #stars { font-size: 26px; letter-spacing: 3px; margin-top: 2px; }
+  .star { opacity: .2; }
+  .star.on { opacity: 1; filter: drop-shadow(0 0 6px rgba(255,209,102,.8)); }
+
+  #events { position: absolute; left: 50%; bottom: 130px; transform: translateX(-50%);
+    text-align: center; font-size: 19px; text-shadow: 0 2px 6px rgba(0,0,0,.9); }
+  #events div { margin: 3px 0; }
+
+  #prompt { position: absolute; left: 50%; top: 58%; transform: translateX(-50%);
+    font-size: 19px; text-shadow: 0 2px 6px rgba(0,0,0,.9); text-align: center; }
+  #prompt b { background: rgba(255,255,255,.9); color: #111; border-radius: 6px;
+    padding: 1px 8px; font-size: 17px; }
+
+  #robbing { position: absolute; left: 50%; top: 64%; transform: translateX(-50%);
+    width: 260px; height: 14px; background: rgba(255,255,255,.16); border-radius: 8px;
+    overflow: hidden; display: none; }
+  #robbing i { display: block; height: 100%; width: 0; background: #ffd166; }
+
+  #hurt { position: absolute; inset: 0; box-shadow: inset 0 0 160px rgba(255,60,60,.75);
+    opacity: 0; transition: opacity .25s; }
+
+  #banner { position: absolute; left: 50%; top: 42%; transform: translateX(-50%);
+    font-size: 58px; font-weight: bold; color: #ff8080; text-shadow: 0 4px 18px rgba(0,0,0,.9);
+    display: none; }
+
+  #start, #loading { position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; background: rgba(8,10,16,.93); text-align: center; }
+  #start { cursor: pointer; }
+  h1 { font-size: 62px; margin: 0 0 6px; letter-spacing: -1px;
+    background: linear-gradient(90deg,#ffd166,#ff7b6b,#7ee0ff); -webkit-background-clip: text;
+    background-clip: text; color: transparent; }
+  .sub { color: #aab2cc; font-size: 19px; margin-bottom: 26px; }
+  .keys { display: grid; grid-template-columns: auto auto; gap: 7px 16px; font-size: 17px;
+    color: #d6dcf0; margin-bottom: 28px; }
+  .keys span:nth-child(odd) { text-align: right; color: #9aa3bd; }
+  kbd { background: rgba(255,255,255,.12); border-radius: 5px; padding: 2px 8px; }
+  .go { font-size: 22px; font-weight: bold; color: #8ce99a; }
+  .note { margin-top: 22px; color: #6f7794; font-size: 13px; max-width: 560px; line-height: 1.5; }
+  #bar { width: 320px; height: 10px; background: rgba(255,255,255,.12); border-radius: 6px; overflow: hidden; margin-top: 18px; }
+  #bar i { display: block; height: 100%; width: 0; background: #7ee0ff; transition: width .2s; }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div id="crosshair"></div>
+  <div id="hurt"></div>
+  <div class="panel" id="left">
+    <div id="health-track"><div id="health-fill"></div></div>
+    <div id="health-text">HEALTH 100</div>
+    <div id="ammo">—</div>
+  </div>
+  <div class="panel" id="right">
+    <div id="money">$0</div>
+    <div id="stars"></div>
+  </div>
+  <div id="events"></div>
+  <div id="prompt"></div>
+  <div id="robbing"><i></i></div>
+  <div id="banner">SOAKED</div>
+</div>
+
+<div id="loading">
+  <h1>GTA Fun</h1>
+  <div class="sub">unpacking the city…</div>
+  <div id="bar"><i></i></div>
+</div>
+
+<div id="start" style="display:none">
+  <h1>GTA Fun</h1>
+  <div class="sub">rob the town, annoy the police, do not get soaked</div>
+  <div class="keys">
+    <span>move</span><span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>
+    <span>look</span><span>mouse</span>
+    <span>sprint</span><span><kbd>Shift</kbd></span>
+    <span>fire nerf blaster</span><span>left click</span>
+    <span>everything else</span><span><kbd>E</kbd></span>
+  </div>
+  <div class="go">click to play</div>
+  <div class="note">
+    <kbd>E</kbd> gets you in and out of cars, picks up blasters, and holds up cash
+    machines, tills and the bank vault. The police fire nerf darts. Nobody dies —
+    run out of health and you just sit down for a moment, keeping your money.
+    Press <kbd>Esc</kbd> to let go of the mouse.
+  </div>
+</div>
+
+<script src="lib/three.min.js"></script>
+<script src="lib/GLTFLoader.js"></script>
+<script src="model-meta.js"></script>
+<script src="models.js"></script>
+<script src="sim.js"></script>
+<script>
+'use strict';
+
+// GTA Fun — the renderer. This file only draws what sim.js decides; all the
+// rules live there so they can be playtested without a browser.
+//
+// Every model is Kenney CC0 art (kenney.nl), including the character
+// animations. Kenney models face +Z; the sim's yaw 0 faces -Z, which is what
+// this offset is for.
+var MODEL_YAW = Math.PI;
+
+var game = SIM.createGame();
+var S = game.state;
+var C = SIM.C;
+var META = globalThis.MODEL_META;
+
+var scene, camera, renderer, clock;
+var templates = {};
+var carViews = new Map();
+var copViews = new Map();
+var dartPool = [];
+var gunViews = new Map();
+var heldBlaster = null;
+var sunTarget;
+
+// --- loading ---------------------------------------------------------------
+
+function dataUriToBuffer(uri) {
+  var b64 = uri.slice(uri.indexOf(',') + 1);
+  var bin = atob(b64);
+  var buf = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return buf.buffer;
+}
+
+function loadAll(done) {
+  var loader = new THREE.GLTFLoader();
+  var names = Object.keys(MODELS);
+  var left = names.length;
+  var bar = document.querySelector('#bar i');
+
+  names.forEach(function (name) {
+    loader.parse(dataUriToBuffer(MODELS[name]), '', function (gltf) {
+      gltf.scene.traverse(function (o) {
+        if (!o.isMesh) return;
+        o.castShadow = true;
+        o.receiveShadow = true;
+        if (o.material && o.material.map) o.material.map.anisotropy = 4;
+      });
+      templates[name] = gltf;
+      left--;
+      bar.style.width = Math.round((1 - left / names.length) * 100) + '%';
+      if (left === 0) done();
+    }, function (err) {
+      console.error('failed to parse', name, err);
+      left--;
+      if (left === 0) done();
+    });
+  });
+}
+
+// Builds one instance of a model, re-centred so it sits on the ground at its
+// own origin, scaled to the size the sim expects.
+function build(name, scale) {
+  var t = templates[name];
+  var m = META[name];
+  if (!t || !m) return new THREE.Group();
+  var inner = t.scene.clone(true);
+  inner.scale.setScalar(scale);
+  inner.position.set(-m.cx * scale, -m.cy * scale, -m.cz * scale);
+  var wrap = new THREE.Group();
+  wrap.add(inner);
+  return wrap;
+}
+
+function fitScale(name, targetSize, axis) {
+  var m = META[name];
+  if (!m) return 1;
+  var native = axis === 'h' ? m.h : axis === 'd' ? m.d : Math.max(m.w, m.d);
+  return targetSize / native;
+}
+
+// --- world ------------------------------------------------------------------
+
+function buildWorld() {
+  // Ground: one big plane, with the road tiles laid on top of it.
+  var ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(C.WORLD + 400, C.WORLD + 400),
+    new THREE.MeshLambertMaterial({ color: 0x8e9781 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(C.WORLD / 2 - C.BLOCK / 2, -0.02, C.WORLD / 2 - C.BLOCK / 2);
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  layRoads();
+
+  for (var i = 0; i < S.city.buildings.length; i++) {
+    var b = S.city.buildings[i];
+    var mesh = build(b.model, b.scale);
+    mesh.position.set(b.x, 0, b.z);
+    mesh.rotation.y = b.rot + MODEL_YAW;
+    scene.add(mesh);
+  }
+
+  for (var p = 0; p < S.city.props.length; p++) {
+    var pr = S.city.props[p];
+    var prop = build(pr.model, fitScale(pr.model, pr.size, 'h'));
+    prop.position.set(pr.x, 0, pr.z);
+    prop.rotation.y = (pr.rot || 0) + MODEL_YAW;
+    scene.add(prop);
+  }
+
+  for (var l = 0; l < S.city.loot.length; l++) {
+    var loot = S.city.loot[l];
+    var name = loot.kind === 'atm' ? 'atm' : loot.kind === 'register' ? 'till' : 'vault';
+    var size = loot.kind === 'vault' ? 4.2 : loot.kind === 'register' ? 1.1 : 1.9;
+    var obj = build(name, fitScale(name, size, 'h'));
+    obj.position.set(loot.x, 0, loot.z);
+    obj.rotation.y = loot.facing + MODEL_YAW;
+    scene.add(obj);
+    loot.view = obj;
+
+    if (loot.kind === 'register') {
+      var screen = build('till-screen', fitScale('till-screen', 0.5, 'h'));
+      screen.position.set(loot.x, 0.75, loot.z);
+      screen.rotation.y = loot.facing + MODEL_YAW;
+      scene.add(screen);
+    }
+  }
+}
+
+// Road tiles are a single mesh each, so they go down as instanced meshes:
+// hundreds of tiles, two draw calls.
+function layRoads() {
+  var straight = firstMesh(templates['road-straight']);
+  var cross = firstMesh(templates['road-crossroad']);
+  if (!straight || !cross) return;
+
+  var tile = C.ROAD;
+  var scale = fitScale('road-straight', tile, 'w');
+  var perLine = Math.ceil((C.WORLD + C.BLOCK) / tile);
+
+  var straights = [];
+  var crosses = [];
+  for (var k = 0; k <= C.BLOCKS; k++) {
+    var line = k * C.BLOCK;
+    for (var t = 0; t < perLine; t++) {
+      var along = t * tile + tile / 2 - C.BLOCK / 2;
+      var onCrossing = Math.abs(along - Math.round(along / C.BLOCK) * C.BLOCK) < tile * 0.6;
+      if (onCrossing) {
+        if (k === 0) crosses.push([Math.round(along / C.BLOCK) * C.BLOCK, line]);
+        continue;
+      }
+      straights.push([along, line, 0]);
+      straights.push([line, along, Math.PI / 2]);
+    }
+  }
+  for (var a = 0; a <= C.BLOCKS; a++) {
+    for (var b = 0; b <= C.BLOCKS; b++) crosses.push([a * C.BLOCK, b * C.BLOCK]);
+  }
+
+  addInstanced(straight, scale, straights, true);
+  addInstanced(cross, scale, crosses.map(function (c) { return [c[0], c[1], 0]; }), true);
+}
+
+function firstMesh(gltf) {
+  if (!gltf) return null;
+  var found = null;
+  gltf.scene.traverse(function (o) { if (!found && o.isMesh) found = o; });
+  return found;
+}
+
+function addInstanced(sourceMesh, scale, placements, receive) {
+  var mesh = new THREE.InstancedMesh(sourceMesh.geometry, sourceMesh.material, placements.length);
+  mesh.receiveShadow = !!receive;
+  var dummy = new THREE.Object3D();
+  for (var i = 0; i < placements.length; i++) {
+    dummy.position.set(placements[i][0], 0, placements[i][1]);
+    dummy.rotation.set(0, placements[i][2] || 0, 0);
+    dummy.scale.setScalar(scale);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+  }
+  mesh.instanceMatrix.needsUpdate = true;
+  scene.add(mesh);
+  return mesh;
+}
+
+// --- entity views -----------------------------------------------------------
+
+function carView(car) {
+  var view = carViews.get(car);
+  if (!view) {
+    var scale = fitScale(car.model, 4.4, 'd');
+    view = build(car.model, scale);
+    scene.add(view);
+    carViews.set(car, view);
+    if (car.kind === 'police') {
+      var light = new THREE.PointLight(0x5599ff, 0, 26);
+      light.position.set(0, 2.2, 0);
+      view.add(light);
+      view.userData.light = light;
+    }
+  }
+  return view;
+}
+
+function copView(cop) {
+  var view = copViews.get(cop);
+  if (!view) {
+    var scale = fitScale('cop', 1.85, 'h');
+    var group = build('cop', scale);
+    scene.add(group);
+    var mixer = new THREE.AnimationMixer(group);
+    var clips = {};
+    templates['cop'].animations.forEach(function (clip) { clips[clip.name] = clip; });
+    view = { group: group, mixer: mixer, clips: clips, current: null };
+    copViews.set(cop, view);
+    playClip(view, 'walk');
+  }
+  return view;
+}
+
+// Kenney ships these animations with the model; nothing here is hand-authored.
+function playClip(view, name) {
+  if (view.current === name || !view.clips[name]) return;
+  var next = view.mixer.clipAction(view.clips[name]);
+  next.reset().setLoop(THREE.LoopRepeat).fadeIn(0.18).play();
+  if (view.currentAction) view.currentAction.fadeOut(0.18);
+  view.currentAction = next;
+  view.current = name;
+}
+
+function dartView(i) {
+  if (!dartPool[i]) {
+    var geo = new THREE.CylinderGeometry(0.035, 0.035, 0.3, 6);
+    geo.rotateX(Math.PI / 2);
+    var mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0xff7a2f }));
+    var tip = new THREE.Mesh(
+      new THREE.SphereGeometry(0.05, 6, 5),
+      new THREE.MeshLambertMaterial({ color: 0xffe066 })
+    );
+    tip.position.z = 0.16;
+    mesh.add(tip);
+    scene.add(mesh);
+    dartPool[i] = mesh;
+  }
+  return dartPool[i];
+}
+
+// --- setup ------------------------------------------------------------------
+
+function init() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x9fc7e8);
+  scene.fog = new THREE.Fog(0x9fc7e8, 90, 340);
+
+  camera = new THREE.PerspectiveCamera(76, innerWidth / innerHeight, 0.1, 800);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  document.body.appendChild(renderer.domElement);
+
+  scene.add(new THREE.HemisphereLight(0xcfe4ff, 0x6a6f5c, 0.95));
+
+  var sun = new THREE.DirectionalLight(0xfff3d6, 1.15);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  var reach = 70;
+  sun.shadow.camera.left = -reach;
+  sun.shadow.camera.right = reach;
+  sun.shadow.camera.top = reach;
+  sun.shadow.camera.bottom = -reach;
+  sun.shadow.camera.near = 1;
+  sun.shadow.camera.far = 260;
+  sun.shadow.bias = -0.0012;
+  scene.add(sun);
+  sunTarget = new THREE.Object3D();
+  scene.add(sunTarget);
+  sun.target = sunTarget;
+  scene.userData.sun = sun;
+
+  buildWorld();
+
+  clock = new THREE.Clock();
+  addEventListener('resize', function () {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+  });
+}
+
+// --- input -------------------------------------------------------------------
+
+var input = { forward: false, back: false, left: false, right: false, sprint: false, fire: false, interact: false };
+var locked = false;
+
+function bindInput() {
+  var el = renderer.domElement;
+  var startScreen = document.getElementById('start');
+
+  startScreen.addEventListener('click', function () { el.requestPointerLock(); });
+  el.addEventListener('click', function () { if (!locked) el.requestPointerLock(); });
+
+  document.addEventListener('pointerlockchange', function () {
+    locked = document.pointerLockElement === el;
+    startScreen.style.display = locked ? 'none' : 'flex';
+    if (!locked) { input.forward = input.back = input.left = input.right = input.fire = false; }
+  });
+
+  document.addEventListener('mousemove', function (e) {
+    if (!locked) return;
+    game.look(e.movementX * 0.0022, e.movementY * 0.0022);
+  });
+
+  document.addEventListener('mousedown', function (e) { if (locked && e.button === 0) input.fire = true; });
+  document.addEventListener('mouseup', function (e) { if (e.button === 0) input.fire = false; });
+
+  document.addEventListener('keydown', function (e) {
+    var k = e.key.toLowerCase();
+    if (k === 'w' || k === 'arrowup') input.forward = true;
+    else if (k === 's' || k === 'arrowdown') input.back = true;
+    else if (k === 'a' || k === 'arrowleft') input.left = true;
+    else if (k === 'd' || k === 'arrowright') input.right = true;
+    else if (k === 'shift') input.sprint = true;
+    else if (k === 'e') {
+      if (!input.interact) game.interact();       // edge-triggered
+      input.interact = true;
+    }
+    if (['w', 'a', 's', 'd', 'e', ' '].indexOf(k) >= 0) e.preventDefault();
+  });
+
+  document.addEventListener('keyup', function (e) {
+    var k = e.key.toLowerCase();
+    if (k === 'w' || k === 'arrowup') input.forward = false;
+    else if (k === 's' || k === 'arrowdown') input.back = false;
+    else if (k === 'a' || k === 'arrowleft') input.left = false;
+    else if (k === 'd' || k === 'arrowright') input.right = false;
+    else if (k === 'shift') input.sprint = false;
+    else if (k === 'e') input.interact = false;
+  });
+}
+
+// --- per-frame sync -----------------------------------------------------------
+
+function syncCars() {
+  for (var i = 0; i < S.cars.length; i++) {
+    var car = S.cars[i];
+    var view = carView(car);
+    var hidden = (car === S.player.car);
+    view.visible = !hidden;
+    view.position.set(car.x, 0, car.z);
+    view.rotation.y = car.angle + MODEL_YAW;
+    if (view.userData.light) {
+      view.userData.light.intensity = 2.4 + Math.sin(S.t * 9) * 2.4;
+      view.userData.light.color.setHex(Math.sin(S.t * 4.5) > 0 ? 0x4477ff : 0xff4444);
+    }
+  }
+  carViews.forEach(function (view, car) {
+    if (S.cars.indexOf(car) === -1) { scene.remove(view); carViews.delete(car); }
+  });
+}
+
+function syncCops(dt) {
+  for (var i = 0; i < S.cops.length; i++) {
+    var cop = S.cops[i];
+    var view = copView(cop);
+    view.group.position.set(cop.x, 0, cop.z);
+
+    var pos = game.playerPos();
+    var facing = Math.atan2(-(pos.x - cop.x), -(pos.z - cop.z));
+    view.group.rotation.y = facing + MODEL_YAW;
+
+    var gap = Math.hypot(pos.x - cop.x, pos.z - cop.z);
+    if (cop.state === 'sat') playClip(view, 'sit');
+    else if (gap > C.COP_STANDOFF) playClip(view, 'walk');
+    else playClip(view, 'holding-both-shoot');
+
+    view.mixer.update(dt);
+  }
+  copViews.forEach(function (view, cop) {
+    if (S.cops.indexOf(cop) === -1) { scene.remove(view.group); copViews.delete(cop); }
+  });
+}
+
+function syncDarts() {
+  for (var i = 0; i < S.darts.length; i++) {
+    var d = S.darts[i];
+    var mesh = dartView(i);
+    mesh.visible = true;
+    mesh.position.set(d.x, d.y, d.z);
+    mesh.lookAt(d.x + d.vx, d.y + d.vy, d.z + d.vz);
+  }
+  for (var j = S.darts.length; j < dartPool.length; j++) dartPool[j].visible = false;
+}
+
+function syncGuns(dt) {
+  for (var i = 0; i < S.city.guns.length; i++) {
+    var g = S.city.guns[i];
+    var view = gunViews.get(g);
+    if (g.taken) {
+      if (view) { scene.remove(view); gunViews.delete(g); }
+      continue;
+    }
+    if (!view) {
+      view = build('blaster', fitScale('blaster', 0.75, 'd'));
+      scene.add(view);
+      gunViews.set(g, view);
+    }
+    view.position.set(g.x, 0.7 + Math.sin(S.t * 2 + g.x) * 0.08, g.z);
+    view.rotation.y += dt * 1.4;
+  }
+}
+
+function syncCamera(dt) {
+  var p = S.player;
+  var pos = game.playerPos();
+  var eye = p.driving ? 1.35 : C.EYE;
+  var bob = (!p.driving && (input.forward || input.back || input.left || input.right))
+    ? Math.sin(p.bob * 2.1) * 0.045 : 0;
+
+  camera.position.set(pos.x, eye + bob, pos.z);
+  camera.rotation.set(0, 0, 0, 'YXZ');
+  camera.rotation.order = 'YXZ';
+  camera.rotation.y = p.yaw;
+  camera.rotation.x = p.pitch;
+
+  // Sit the driver a little forward of the car's centre.
+  if (p.driving && p.car) {
+    camera.position.x += -Math.sin(p.car.angle) * 0.5;
+    camera.position.z += -Math.cos(p.car.angle) * 0.5;
+  }
+
+  var sun = scene.userData.sun;
+  sun.position.set(pos.x + 60, 110, pos.z + 40);
+  sunTarget.position.set(pos.x, 0, pos.z);
+
+  if (heldBlaster) {
+    heldBlaster.visible = p.hasGun && !p.soaked;
+    heldBlaster.position.set(0.28, -0.26 + bob * 0.5, -0.55);
+    heldBlaster.rotation.set(0, Math.PI + 0.06, 0);
+  }
+}
+
+// --- HUD ----------------------------------------------------------------------
+
+var ui = {
+  health: document.getElementById('health-fill'),
+  healthText: document.getElementById('health-text'),
+  ammo: document.getElementById('ammo'),
+  money: document.getElementById('money'),
+  stars: document.getElementById('stars'),
+  events: document.getElementById('events'),
+  prompt: document.getElementById('prompt'),
+  robbing: document.getElementById('robbing'),
+  robbingFill: document.querySelector('#robbing i'),
+  hurt: document.getElementById('hurt'),
+  banner: document.getElementById('banner'),
+};
+
+var lastHealth = 100;
+
+function syncHud() {
+  var p = S.player;
+
+  ui.health.style.width = Math.max(0, p.health) + '%';
+  ui.healthText.textContent = 'HEALTH ' + Math.ceil(Math.max(0, p.health));
+  ui.money.textContent = '$' + p.money.toLocaleString('en-GB');
+  ui.ammo.innerHTML = p.hasGun
+    ? p.ammo + ' <small>darts</small>'
+    : '<small>no blaster — find one and press E</small>';
+
+  var stars = '';
+  for (var i = 0; i < C.MAX_WANTED; i++) {
+    stars += '<span class="star' + (i < S.wanted ? ' on' : '') + '">★</span>';
+  }
+  ui.stars.innerHTML = stars;
+
+  var html = '';
+  for (var e = 0; e < S.events.length; e++) html += '<div>' + S.events[e].text + '</div>';
+  ui.events.innerHTML = html;
+
+  if (p.robTarget && p.robbing > 0) {
+    ui.robbing.style.display = 'block';
+    ui.robbingFill.style.width = Math.min(100, (p.robbing / C.ROB_TIME) * 100) + '%';
+  } else {
+    ui.robbing.style.display = 'none';
+  }
+
+  ui.prompt.innerHTML = promptText();
+
+  if (p.health < lastHealth - 0.5) {
+    ui.hurt.style.opacity = '1';
+    setTimeout(function () { ui.hurt.style.opacity = '0'; }, 90);
+  }
+  lastHealth = p.health;
+
+  ui.banner.style.display = p.soaked ? 'block' : 'none';
+}
+
+// Tells the player what E would do from where they are standing.
+function promptText() {
+  var p = S.player;
+  if (p.soaked) return '';
+  if (p.robbing > 0) return 'hold <b>E</b>…';
+  if (p.driving) return '<b>E</b> get out';
+
+  var gun = game.nearestGun();
+  if (gun.gun && gun.d < C.PICKUP_RANGE) return '<b>E</b> pick up nerf blaster';
+
+  var loot = game.nearestLoot();
+  if (loot.loot && loot.d < C.ROB_RANGE) {
+    var label = loot.loot.kind === 'atm' ? 'cash machine'
+      : loot.loot.kind === 'register' ? 'till' : 'bank vault';
+    if (loot.loot.cool > 0) return 'the ' + label + ' is empty (' + Math.ceil(loot.loot.cool) + 's)';
+    return '<b>E</b> hold up the ' + label + ' — $' + loot.loot.cash;
+  }
+
+  var car = game.nearestCar();
+  if (car.car && car.d < C.ENTER_RANGE) {
+    return '<b>E</b> take the ' + (car.car.kind === 'police' ? 'police car' : 'car');
+  }
+  return '';
+}
+
+// --- loop ----------------------------------------------------------------------
+
+function frame() {
+  requestAnimationFrame(frame);
+  var dt = Math.min(clock.getDelta(), 0.1);
+
+  game.update(dt, input);
+
+  syncCars();
+  syncCops(dt);
+  syncDarts();
+  syncGuns(dt);
+  syncCamera(dt);
+  syncHud();
+
+  renderer.render(scene, camera);
+}
+
+loadAll(function () {
+  init();
+  bindInput();
+
+  heldBlaster = build('blaster', fitScale('blaster', 0.42, 'd'));
+  heldBlaster.traverse(function (o) { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+  camera.add(heldBlaster);
+  scene.add(camera);
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('start').style.display = 'flex';
+  frame();
+});
+</script>
+</body>
+</html>

@@ -2,46 +2,48 @@
 REM ---------------------------------------------------------------------------
 REM  Fleck -- start the game.
 REM
-REM  Double-click this file. It serves this folder on http://localhost:8765 and
-REM  opens the game in your browser. Close the black window to stop it.
+REM  You do NOT need this file any more: fleck.html works if you double-click
+REM  it directly. This is here for a slightly faster load and for browsers that
+REM  are strict about local files.
 REM
-REM  WHY A SERVER AT ALL: the sprites are ~1000 separate PNG files now instead
-REM  of one 18MB page. A browser opening a file directly (file://) refuses to
-REM  fetch them, so the game needs something serving the folder. Nothing is
-REM  uploaded anywhere -- "localhost" is this computer only, and it works with
-REM  the wifi off.
-REM
-REM  PORTABLE: this needs Python OR Node, whichever the machine has. Most
-REM  Windows machines have neither out of the box; if both are missing the
-REM  script says so and tells you the one thing to install.
+REM  Finding Python is fussier than it looks. Windows ships a FAKE python.exe
+REM  in WindowsApps that opens the Microsoft Store and exits, so `where python`
+REM  succeeds and the server never starts -- which looked exactly like a broken
+REM  game. Every candidate below is TESTED before it is used.
 REM ---------------------------------------------------------------------------
-setlocal
+setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 set PORT=8765
+set PY=
 
-where python >nul 2>nul && (
-  echo Starting Fleck with Python on http://localhost:%PORT%/fleck.html
-  start "" http://localhost:%PORT%/fleck.html
-  python serve.py %PORT%
-  goto :eof
+REM Real installs first, the PATH last.
+for %%D in ("%LOCALAPPDATA%\Programs\Python\Python313"
+            "%LOCALAPPDATA%\Programs\Python\Python312"
+            "%LOCALAPPDATA%\Programs\Python\Python311"
+            "%ProgramFiles%\Python313" "%ProgramFiles%\Python312"
+            "%ProgramFiles%\Python311") do (
+  if exist "%%~D\python.exe" if not defined PY set "PY=%%~D\python.exe"
 )
-where py >nul 2>nul && (
-  echo Starting Fleck with Python on http://localhost:%PORT%/fleck.html
-  start "" http://localhost:%PORT%/fleck.html
-  py serve.py %PORT%
-  goto :eof
+
+if not defined PY (
+  py -3 -c "print(1)" >nul 2>nul && set "PY=py -3"
 )
-where npx >nul 2>nul && (
-  echo Starting Fleck with Node on http://localhost:%PORT%/fleck.html
-  start "" http://localhost:%PORT%/fleck.html
-  npx --yes serve -l %PORT% .
+if not defined PY (
+  python -c "print(1)" >nul 2>nul && set "PY=python"
+)
+
+if defined PY (
+  echo Starting Fleck on http://localhost:%PORT%/fleck.html
+  echo Close this window to stop it.
+  REM Server FIRST, browser after a moment -- opening the page before the
+  REM server is listening is what produces "unable to connect".
+  start "" /b cmd /c "timeout /t 2 >nul & start "" http://localhost:%PORT%/fleck.html"
+  %PY% serve.py %PORT%
   goto :eof
 )
 
 echo.
-echo  Could not find Python or Node on this computer.
-echo.
-echo  Install Python from https://www.python.org/downloads/  -- tick
-echo  "Add python.exe to PATH" on the first screen -- then run this again.
+echo  No working Python found -- but you do not need one.
+echo  Just double-click  fleck.html  in this folder instead.
 echo.
 pause

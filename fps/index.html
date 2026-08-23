@@ -58,21 +58,25 @@
     display: none; }
 
   #store { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    width: min(620px, 92vw); background: rgba(10,13,20,.94); border-radius: 16px;
-    padding: 22px 24px; display: none; }
-  #store h2 { margin: 0 0 4px; font-size: 30px; color: #ffd166; }
-  #store .till { color: #8ce99a; font-size: 17px; margin-bottom: 14px; }
+    width: min(600px, 92vw); max-height: 90vh; overflow-y: auto;
+    background: rgba(10,13,20,.95); border-radius: 16px;
+    padding: 16px 20px; display: none; }
+  #store h2 { margin: 0 0 2px; font-size: 24px; color: #ffd166; }
+  #store .till { color: #8ce99a; font-size: 15px; margin-bottom: 10px; }
   #store ol { list-style: none; margin: 0; padding: 0; }
-  #store li { display: flex; align-items: baseline; gap: 12px; padding: 9px 10px;
-    border-radius: 9px; font-size: 17px; }
+  #store li { display: flex; align-items: center; gap: 10px; padding: 6px 8px;
+    border-radius: 9px; font-size: 16px; }
   #store li:nth-child(odd) { background: rgba(255,255,255,.05); }
   #store .num { background: rgba(255,255,255,.16); border-radius: 6px; padding: 1px 9px;
     font-weight: bold; }
   #store .what { flex: 1; }
+  #store .pic { width: 72px; height: 42px; object-fit: contain; border-radius: 6px;
+    background: rgba(255,255,255,.06); flex: none; }
+  #store .pic.blank { display: inline-block; }
   #store .blurb { display: block; color: #8b93ad; font-size: 13px; }
   #store .cost { color: #8ce99a; font-weight: bold; }
   #store .cost.no { color: #ff8a80; }
-  #store .foot { margin-top: 14px; color: #8b93ad; font-size: 14px; }
+  #store .foot { margin-top: 10px; color: #8b93ad; font-size: 13px; }
 
   #start, #loading { position: fixed; inset: 0; display: flex; flex-direction: column;
     align-items: center; justify-content: center; background: rgba(8,10,16,.93); text-align: center; }
@@ -295,6 +299,7 @@ function buildWorld() {
 
   buildInterior();
   buildStores();
+  buildLabels();
 
   for (var d = 0; d < S.city.doors.length; d++) {
     var bankDoor = S.city.doors[d];
@@ -320,6 +325,97 @@ function buildWorld() {
       screen.rotation.y = loot.facing + MODEL_YAW;
       scene.add(screen);
     }
+  }
+}
+
+// Signage. Text drawn to a canvas and hung on a sprite, so you can tell the
+// bank from the flats without walking into every door.
+var labels = [];
+
+function makeLabel(text, colour, size) {
+  var pad = 24;
+  var canvas = document.createElement('canvas');
+  var ctx2d = canvas.getContext('2d');
+  var font = 'bold 64px "Trebuchet MS", sans-serif';
+  ctx2d.font = font;
+  var width = Math.ceil(ctx2d.measureText(text).width) + pad * 2;
+  canvas.width = width;
+  canvas.height = 110;
+
+  ctx2d = canvas.getContext('2d');
+  ctx2d.font = font;
+  ctx2d.textAlign = 'center';
+  ctx2d.textBaseline = 'middle';
+  ctx2d.fillStyle = 'rgba(12,15,22,.82)';
+  roundRect(ctx2d, 2, 2, canvas.width - 4, canvas.height - 4, 22);
+  ctx2d.fill();
+  ctx2d.fillStyle = colour;
+  ctx2d.fillText(text, canvas.width / 2, canvas.height / 2 + 3);
+
+  var texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 4;
+  var sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }));
+  var scale = size || 3.4;
+  sprite.scale.set(scale * (canvas.width / canvas.height), scale, 1);
+  return sprite;
+}
+
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+function addLabel(text, x, y, z, colour, size, range) {
+  var sprite = makeLabel(text, colour || '#ffffff', size);
+  sprite.position.set(x, y, z);
+  scene.add(sprite);
+  labels.push({ sprite: sprite, range: range || 60 });
+  return sprite;
+}
+
+var BUILDING_LABELS = {
+  'tower-a': 'OFFICES', 'tower-c': 'OFFICES',
+  'building-k': 'DEPARTMENT STORE', 'building-n': 'SHOPPING CENTRE',
+  'building-a': 'APARTMENTS', 'building-c': 'APARTMENTS',
+  'building-e': 'SHOPS', 'building-h': 'SHOPS',
+  'bank': 'BANK',
+};
+
+function buildLabels() {
+  for (var i = 0; i < S.city.buildings.length; i++) {
+    var b = S.city.buildings[i];
+    var text = BUILDING_LABELS[b.model];
+    if (!text) continue;
+    var isBank = b.model === 'bank';
+    addLabel(text, b.x, b.h + (isBank ? 2.6 : 1.8), b.z,
+      isBank ? '#ffd166' : '#dfe6ff', isBank ? 3 : 1.9, isBank ? 160 : 70);
+  }
+  for (var st = 0; st < S.city.stores.length; st++) {
+    addLabel('ARMOURY', S.city.stores[st].x, 3.6, S.city.stores[st].z, '#8ce99a', 2.2, 120);
+  }
+  for (var l = 0; l < S.city.loot.length; l++) {
+    var loot = S.city.loot[l];
+    var name = loot.kind === 'atm' ? 'CASH MACHINE' : loot.kind === 'register' ? 'TILL' : 'SAFE';
+    addLabel(name, loot.x, loot.kind === 'safe' ? 3.0 : 2.3, loot.z, '#7ee0ff', 1.15, 26);
+  }
+  for (var d = 0; d < S.city.doors.length; d++) {
+    addLabel('WAY IN', S.city.doors[d].x, 4.6, S.city.doors[d].z, '#ffd166', 1.5, 45);
+  }
+}
+
+// Labels are only worth drawing near you, and there are over a hundred.
+function syncLabels() {
+  var pos = game.playerPos();
+  for (var i = 0; i < labels.length; i++) {
+    var entry = labels[i];
+    var p3 = entry.sprite.position;
+    var dx = p3.x - pos.x, dz = p3.z - pos.z;
+    entry.sprite.visible = (dx * dx + dz * dz) < entry.range * entry.range;
   }
 }
 
@@ -445,12 +541,6 @@ function carView(car) {
     view = build(car.model, scale);
     scene.add(view);
     carViews.set(car, view);
-    if (car.kind === 'police') {
-      var light = new THREE.PointLight(0x5599ff, 0, 26);
-      light.position.set(0, 2.2, 0);
-      view.add(light);
-      view.userData.light = light;
-    }
   }
   return view;
 }
@@ -485,6 +575,8 @@ function dartView(i) {
   if (!dartPool[i]) {
     // Kenney's own foam dart, rather than a cylinder pretending to be one.
     var mesh = build('dart', fitScale('dart', 0.34, 'h'));
+    // Dozens in the air at once; none of them need to cast a shadow.
+    mesh.traverse(function (o) { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
     scene.add(mesh);
     dartPool[i] = mesh;
   }
@@ -512,8 +604,10 @@ function init() {
 
   var sun = new THREE.DirectionalLight(0xfff3d6, 1.15);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  var reach = 70;
+  // 2048 over a 70m box was the single most expensive thing on screen. A
+  // tighter box at half the resolution looks the same and costs a quarter.
+  sun.shadow.mapSize.set(1024, 1024);
+  var reach = 45;
   sun.shadow.camera.left = -reach;
   sun.shadow.camera.right = reach;
   sun.shadow.camera.top = reach;
@@ -614,10 +708,7 @@ function syncCars() {
     view.visible = true;          // visible even when you are the one driving
     view.position.set(car.x, 0, car.z);
     view.rotation.y = car.angle + MODEL_YAW;
-    if (view.userData.light) {
-      view.userData.light.intensity = 2.4 + Math.sin(S.t * 9) * 2.4;
-      view.userData.light.color.setHex(Math.sin(S.t * 4.5) > 0 ? 0x4477ff : 0xff4444);
-    }
+
   }
   carViews.forEach(function (view, car) {
     if (S.cars.indexOf(car) === -1) { scene.remove(view); carViews.delete(car); }
@@ -719,6 +810,59 @@ function syncCamera(dt) {
   }
 }
 
+// Renders each blaster to a small picture once, for the armoury list. Done
+// through a render target with the renderer we already have.
+var previews = {};
+
+function makePreviews() {
+  var width = 220, height = 130;
+  var target = new THREE.WebGLRenderTarget(width, height);
+  var shot = new THREE.Scene();
+  shot.add(new THREE.HemisphereLight(0xffffff, 0x555566, 1.5));
+  var key = new THREE.DirectionalLight(0xffffff, 1.1);
+  key.position.set(2, 3, 2);
+  shot.add(key);
+
+  var cam = new THREE.PerspectiveCamera(32, width / height, 0.01, 60);
+  var canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  var ctx2d = canvas.getContext('2d');
+  var pixels = new Uint8Array(width * height * 4);
+
+  for (var i = 0; i < game.weapons.length; i++) {
+    var gun = game.weapons[i];
+    var obj = build(gun.model, 1);
+    shot.add(obj);
+
+    var box = new THREE.Box3().setFromObject(obj);
+    var span = box.getSize(new THREE.Vector3());
+    var centre = box.getCenter(new THREE.Vector3());
+    var reach = Math.max(span.x, span.y, span.z) * 1.45;
+    cam.position.set(centre.x + reach * 0.75, centre.y + reach * 0.5, centre.z + reach * 0.75);
+    cam.lookAt(centre);
+
+    renderer.setRenderTarget(target);
+    renderer.setClearColor(0x000000, 0);
+    renderer.clear();
+    renderer.render(shot, cam);
+    renderer.readRenderTargetPixels(target, 0, 0, width, height, pixels);
+    renderer.setRenderTarget(null);
+
+    // WebGL hands back bottom-up rows; canvas wants them top-down.
+    var image = ctx2d.createImageData(width, height);
+    for (var row = 0; row < height; row++) {
+      var from = (height - 1 - row) * width * 4;
+      for (var col = 0; col < width * 4; col++) image.data[row * width * 4 + col] = pixels[from + col];
+    }
+    ctx2d.putImageData(image, 0, 0);
+    previews[gun.id] = canvas.toDataURL('image/png');
+
+    shot.remove(obj);
+  }
+  target.dispose();
+}
+
 // --- HUD ----------------------------------------------------------------------
 
 var ui = {
@@ -791,6 +935,9 @@ function syncStore() {
     var item = S.store.items[i];
     var afford = S.player.money >= item.price;
     rows += '<li><span class="num">' + (i + 1) + '</span>' +
+      (item.weapon && previews[item.weapon]
+        ? '<img class="pic" src="' + previews[item.weapon] + '" alt="">'
+        : '<span class="pic blank"></span>') +
       '<span class="what">' + item.name +
       '<span class="blurb">' + item.blurb + '</span></span>' +
       '<span class="cost' + (afford ? '' : ' no') + '">$' + item.price + '</span></li>';
@@ -845,6 +992,7 @@ function frame() {
   syncDarts();
   syncGuns(dt);
   syncCamera(dt);
+  syncLabels();
   syncHud();
 
   renderer.render(scene, camera);
@@ -855,6 +1003,8 @@ loadAll(function () {
   bindInput();
 
   scene.add(camera);
+
+  makePreviews();
 
   document.getElementById('loading').style.display = 'none';
   document.getElementById('start').style.display = 'flex';

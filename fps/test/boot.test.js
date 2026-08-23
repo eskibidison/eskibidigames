@@ -45,11 +45,20 @@ function browserSandbox() {
       removeEventListener() {}, setAttribute() {}, getAttribute: () => null,
       appendChild() {}, removeChild() {}, requestPointerLock() {},
       getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 720 }),
+      // A canvas 2D context complete enough for the label and preview code:
+      // text measurement, paths and image data all get used for real.
       getContext: () => ({
+        canvas: el,
         fillRect() {}, drawImage() {}, translate() {}, scale() {}, save() {}, restore() {},
-        getImageData: () => ({ data: new Uint8Array(16) }),
-        createImageData: () => ({ data: new Uint8Array(16) }), putImageData() {},
+        beginPath() {}, closePath() {}, moveTo() {}, lineTo() {}, arcTo() {}, arc() {},
+        fill() {}, stroke() {}, clip() {}, setTransform() {}, clearRect() {},
+        measureText: text => ({ width: String(text).length * 32 }),
+        fillText() {}, strokeText() {},
+        getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(Math.max(4, w * h * 4)) }),
+        createImageData: (w, h) => ({ data: new Uint8ClampedArray(Math.max(4, w * h * 4)) }),
+        putImageData() {},
       }),
+      toDataURL: () => 'data:image/png;base64,iVBORw0KGgo=',
     };
     let src = '';
     Object.defineProperty(el, 'src', {
@@ -95,6 +104,10 @@ vm.runInContext(`
     this.setPixelRatio = function () {};
     this.setSize = function () {};
     this.render = function () { globalThis.__renders++; };
+    this.setRenderTarget = function () {};
+    this.setClearColor = function () {};
+    this.clear = function () {};
+    this.readRenderTargetPixels = function () {};
     this.dispose = function () {};
   };
 `, ctx);

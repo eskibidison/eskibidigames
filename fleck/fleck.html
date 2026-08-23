@@ -64,6 +64,9 @@
         border-radius:8px;padding:6px 4px;color:#456B12;font-family:inherit;
         font-size:15px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.55)}
   .hbtn:hover{background:linear-gradient(#e0f2b6,#bcdd7c)}
+  /* The sound toggle is a small square, NOT another full-width button --
+     .hbtn is flex:1, so leaving it default stretched the whole row. */
+  #sndbtn{flex:none;width:38px;padding:6px 0;font-size:17px}
   .hbtn svg{width:20px;height:20px;flex:none}
   /* Real art replaces the placeholder SVGs. profile and quests arrived as
      COMPLETE buttons with their labels already drawn in, so those two hide
@@ -398,6 +401,7 @@
 </div>
 
 <script src="sprites.js"></script>
+<script src="atlas.js"></script>
 <script>
 // ---------------------------------------------------------------- sprites
 // ---------------------------------------------------------------- sprites
@@ -428,27 +432,21 @@ function __ready(){
  * canvases now, so this bakes one out on demand and remembers it; the market
  * rebuilds often and re-encoding every row each time would be wasteful.
  */
-const __url = {};
+const PATHS = window.FLECK_SPRITES || {};
 function src(key){
-  if(__url[key]) return __url[key];
-  const c = IMG[key];
-  if(!c || !c.width) return '';      // asked for before the atlas decoded
-  let out = '';
-  try { out = c.toDataURL('image/png'); } catch(e) { return ''; }
-  // Only a REAL url is cached. Caching the empty string would make anything
-  // asked for during loading stay blank for the rest of the session.
-  __url[key] = out;
-  return out;
+  // A PLAIN FILE PATH, not a data url baked off the canvas. Two reasons: it
+  // works before the atlas has finished decoding, and a canvas that has had a
+  // file:// image drawn into it is tainted, so toDataURL throws outright when
+  // the page is opened by double-clicking. Only a few dozen of these are ever
+  // on screen at once, so the extra requests are nothing.
+  return PATHS[key] || '';
 }
 
 async function loadSprites(){
-  let atlas;
-  try{
-    atlas = await (await fetch('atlas/atlas.json')).json();
-  }catch(e){
-    __show('could not load the artwork — is the server running?', 0);
-    return;
-  }
+  // From a <script> tag, not fetch(): fetch is blocked on file:// URLs, so a
+  // double-clicked page could never read a .json index and would hang here.
+  const atlas = window.FLECK_ATLAS;
+  if(!atlas){ __show('atlas.js is missing — run tools/build_atlas.py', 0); return; }
   const pages=[];
   for(let i=0;i<atlas.pages;i++){
     __show('loading the garden… sheet '+(i+1)+' of '+atlas.pages,
@@ -760,17 +758,19 @@ const VIEW_R = 714, VIEW_B = 92;
 const VIEW_T = 157;
 // The top margin is smaller than the others on purpose: the HUD has already
 // eaten 157px, so demanding another 170 would leave almost no still zone.
-const FOLLOW_EDGE = 170, FOLLOW_EDGE_TOP = 80, FOLLOW_SPEED = 260;
+const FOLLOW_EDGE = 170, FOLLOW_EDGE_TOP = 150, FOLLOW_SPEED = 260;
 function camBounds(){
   const worldR = OX + (COLS-1)*HEX_W + HEX_W;
   const worldB = OY + (ROWS-1)*ROW_PITCH + HEX_H;
   // Never let the garden be scrolled entirely off screen: the far edge can
   // only just reach the edge of the view.
   const viewB = canvas.height - VIEW_B;
-  // maxY has to clear the HUD, not just the canvas edge: at 120 the top row
-  // stopped only 33px below the panel. 150 gives her room to stand there.
+  // maxY is how far the view can push DOWN, which is what reveals the top of
+  // the garden. It has to clear the HUD, not just the canvas edge, and 150
+  // still felt like it barely moved -- at 300 the top row sits well clear of
+  // the panel with real ground visible above it.
   return {minX: Math.min(0, VIEW_R - worldR), maxX: 40,
-          minY: Math.min(0, viewB - worldB),  maxY: 150};
+          minY: Math.min(0, viewB - worldB),  maxY: 300};
 }
 /** Where the camera WANTS to be so the avatar sits inside the deadzone box. */
 function camTarget(){
@@ -892,25 +892,98 @@ const Snd = (() => {
     denied:  () => { tone(200,.14,'square',.18,150); },
   };
 
-  // A slow four-chord loop in A minor, one note at a time. Deliberately sparse
-  // -- this plays for as long as the game is open, and anything busier would
-  // wear out inside a minute.
-  const BASS=[110,110,146.83,164.81], MEL=[440,523.25,659.25,523.25,587.33,493.88,440,392];
-  function tick(){
+  // ---- music ------------------------------------------------------------
+  // The first attempt was a bare square-wave arpeggio: one voice, no phrasing,
+  // hard edges. It was genuinely unpleasant to sit under. This is built like
+  // an actual piece instead.
+  //
+  //   * THREE VOICES. A soft sine pad holding the chord, a triangle melody
+  //     with a slow attack, and a quiet bass. One voice alone is what made the
+  //     old one sound flat and sharp.
+  //   * A LOWPASS FILTER on everything, so nothing has that raw buzzy top end.
+  //   * A REAL TUNE over I-V-vi-IV in C, phrased in four-bar answers rather
+  //     than a scale run, and it RESTS -- the gaps are what make it bearable
+  //     for as long as a gardening game is left open.
+  //   * Scheduled against the audio clock with a lookahead, not setTimeout,
+  //     which drifts and makes the rhythm wander.
+  const N = {C3:130.81,E3:164.81,F3:174.61,G3:196.00,A3:220.00,
+             C4:261.63,D4:293.66,E4:329.63,F4:349.23,G4:392.00,A4:440.00,B4:493.88,
+             C5:523.25,D5:587.33,E5:659.25,G5:783.99};
+  const BEAT = 0.44;                       // unhurried
+  const CHORDS = [                          // one per bar of four beats
+    [N.C3, [N.C4,N.E4,N.G4]],
+    [N.G3, [N.B4,N.D4,N.G4]],
+    [N.A3, [N.C4,N.E4,N.A4]],
+    [N.F3, [N.C4,N.F4,N.A4]],
+  ];
+  // [note, beats]. null is a rest, and there are plenty on purpose.
+  const TUNE = [
+    [N.E4,1],[N.G4,1],[N.A4,2],   [N.G4,1],[N.E4,1],[N.D4,2],
+    [N.C4,1],[N.E4,1],[N.G4,2],   [N.A4,2],[null,2],
+    [N.G4,1],[N.A4,1],[N.C5,2],   [N.B4,1],[N.A4,1],[N.G4,2],
+    [N.E4,1],[N.D4,1],[N.C4,2],   [null,4],
+    [N.G4,1],[N.C5,1],[N.E5,2],   [N.D5,1],[N.C5,1],[N.A4,2],
+    [N.C5,1],[N.A4,1],[N.G4,2],   [N.E4,2],[null,2],
+    [N.F4,1],[N.A4,1],[N.C5,2],   [N.A4,1],[N.G4,1],[N.E4,2],
+    [N.D4,1],[N.E4,1],[N.C4,2],   [null,4],
+  ];
+
+  let mGain=null, mFilter=null, nextT=0, tuneAt=0, beatAt=0, sched=null;
+
+  function musicBus(){
+    if(mGain) return mGain;
+    mFilter = ctx.createBiquadFilter();
+    mFilter.type='lowpass'; mFilter.frequency.value=1500; mFilter.Q.value=0.6;
+    mGain = ctx.createGain(); mGain.gain.value=0.5;
+    mFilter.connect(mGain); mGain.connect(master);
+    return mGain;
+  }
+  /** One musical note, with an attack slow enough not to click. */
+  function voice(freq, at, dur, type, vol, attack){
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type=type; o.frequency.setValueAtTime(freq, at);
+    const a=attack||0.04;
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(vol, at+a);
+    g.gain.exponentialRampToValueAtTime(0.0001, at+dur);
+    o.connect(g); g.connect(mFilter);
+    o.start(at); o.stop(at+dur+0.03);
+  }
+
+  function schedule(){
     if(!musicOn) return;
-    const bar=Math.floor(step/4)%4;
-    if(step%4===0) tone(BASS[bar], .55, 'triangle', .13);
-    if(step%2===0) tone(MEL[step%MEL.length], .30, 'square', .045);
-    step++;
-    musicTimer=setTimeout(tick, 420);
+    musicBus();
+    const horizon = ctx.currentTime + 0.9;      // stay this far ahead
+    while(nextT < horizon){
+      const bar = Math.floor(beatAt/4) % CHORDS.length;
+      const [root, chord] = CHORDS[bar];
+
+      if(beatAt % 4 === 0){                     // new bar: bass and pad
+        voice(root, nextT, BEAT*3.6, 'triangle', 0.075, 0.06);
+        chord.forEach((f,k)=> voice(f, nextT+k*0.012, BEAT*3.8, 'sine', 0.030, 0.18));
+      }
+      const [note, len] = TUNE[tuneAt % TUNE.length];
+      if(note) voice(note, nextT, BEAT*len*0.92, 'triangle', 0.085, 0.05);
+
+      nextT  += BEAT*len;
+      beatAt += len;
+      tuneAt += 1;
+    }
+    sched = setTimeout(schedule, 220);
+  }
+
+  function tick(){                              // kept: the old entry point
+    if(!musicOn) return;
+    if(nextT < ctx.currentTime) nextT = ctx.currentTime + 0.15;
+    schedule();
   }
 
   return {
     play(name){ if(enabled && SFX[name]) SFX[name](); },
     music(on){
       musicOn=on;
-      if(on){ start(); if(!musicTimer) tick(); }
-      else { clearTimeout(musicTimer); musicTimer=null; }
+      if(on){ start(); if(!sched) tick(); }
+      else { clearTimeout(sched); sched=null; clearTimeout(musicTimer); musicTimer=null; }
     },
     toggle(){
       enabled=!enabled;
@@ -1264,9 +1337,11 @@ function releaseFrom(c,r,lvl){
 // She picks the shotgun up by herself whenever any of them are on the map --
 // there is no weapon button to find and no way to be caught holding a trowel.
 const SHOOT_RANGE  = HEX_W*4.2;   // she will not fire at something across the map
-const SHOOT_COOL   = 0.85;        // seconds between shots
-const SHOOT_DAMAGE = 34;
-const ZENO_HP      = {chomper:60, spitter:70, brute:150};
+const SHOOT_COOL   = 0.62;        // seconds between shots
+// Five shots for the small ones, twelve for the Brute. It was two and four,
+// which made a fight over before it registered as having started.
+const SHOOT_DAMAGE = 20;
+const ZENO_HP      = {chomper:100, spitter:110, brute:240};
 const WAVE_GAP     = 2.2;         // seconds between one coming up and the next
 
 /** What a plant of this level is holding, in the order they climb out. */
@@ -2479,8 +2554,10 @@ function afterSprites(){
   paintChrome();
   buildMarket();
   // The inventory is written once at boot, before any artwork exists, so its
-  // <img> tags were filled with empty strings. Rebuild it now that they can
-  // actually resolve.
+  // <img> tags were filled with empty strings. updateInv() skips a rebuild
+  // when the bag has not changed -- which it has not -- so the cached
+  // signature has to be cleared or the broken images stay for good.
+  invSig = null;
   updateInv();
   if(new URLSearchParams(location.search).has('demo')) seedDemo();
   centerCam();          // open on her, not on the top-left corner of the field

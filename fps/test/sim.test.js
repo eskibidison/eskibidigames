@@ -399,6 +399,33 @@ section('weapons');
   ok('the scatter blaster fires five darts in one pull');
 }
 
+// --- 5e2. darts must connect even when the game stutters --------------------
+
+section('darts at low frame rates');
+{
+  // The real complaint: "shooting the cops but they don't die". A dart travels
+  // further in one frame than an officer is wide, so when the frame rate drops
+  // a position-only hit test misses entirely.
+  const hitsAt = fps => {
+    const step = 1 / fps;
+    const g = SIM.createGame();
+    g.giveWeapon('blaster', 999);
+    const cop = g.spawnCop(g.state.player.x, g.state.player.z - 12);
+    const before = cop.health;
+    for (let i = 0; i < fps * 12 && cop.health === before; i++) {
+      faceTowards(g, cop.x, cop.z);
+      g.state.player.pitch = 0;
+      g.update(step, Object.assign(noInput(), { fire: true }));
+    }
+    return cop.health < before;
+  };
+
+  for (const fps of [60, 30, 20, 12]) {
+    assert.ok(hitsAt(fps), `darts still hit an officer at ${fps} frames per second`);
+  }
+  ok('darts connect at 60, 30, 20 and 12 fps, not just when running smoothly');
+}
+
 // --- 5f. robbing the bank from the inside -----------------------------------
 
 section('the bank');

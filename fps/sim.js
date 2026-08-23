@@ -87,6 +87,7 @@
     REGEN_RATE: 5,
 
     COP_HEALTH: 100,
+    COP_HIT_R: 1.1,           // officers stand 2.35m; give darts a fair target
     COP_SPEED: 4.6,
     COP_RANGE: 22,
     COP_STANDOFF: 9,
@@ -136,6 +137,19 @@
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
   function dist2(ax, az, bx, bz) { var dx = ax - bx, dz = az - bz; return dx * dx + dz * dz; }
   function dist(ax, az, bx, bz) { return Math.sqrt(dist2(ax, az, bx, bz)); }
+
+  // Closest distance from a point to a line segment, on the ground plane.
+  // Darts are tested along the whole step they travelled, not just where they
+  // landed: at 55 m/s a dart advances further per frame than a person is wide,
+  // so a position-only test lets them pass straight through an officer — and it
+  // gets worse the more the game stutters.
+  function segmentDistance(ax, az, bx, bz, cx, cz) {
+    var dx = bx - ax, dz = bz - az;
+    var len2 = dx * dx + dz * dz;
+    var t = len2 > 0 ? ((cx - ax) * dx + (cz - az) * dz) / len2 : 0;
+    t = clamp(t, 0, 1);
+    return Math.hypot(ax + dx * t - cx, az + dz * t - cz);
+  }
 
   // Yaw 0 looks down -Z, matching the renderer's camera.
   function forwardX(yaw) { return -Math.sin(yaw); }
@@ -737,15 +751,18 @@
       var pos = playerPos();
       for (var i = state.darts.length - 1; i >= 0; i--) {
         var d = state.darts[i];
+        var fromX = d.x, fromY = d.y, fromZ = d.z;
         d.life -= dt;
         d.vy -= 7 * dt;                                  // foam darts droop
         d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
 
+        var lowY = Math.min(fromY, d.y), highY = Math.max(fromY, d.y);
         var gone = d.life <= 0 || d.y < 0.05 || blocked(d.x, d.z, 0.12);
 
         if (!gone && d.owner === 'police' && !p.soaked) {
           var hitR = p.driving ? 2.0 : 0.85;
-          if (dist(d.x, d.z, pos.x, pos.z) < hitR && d.y < (p.driving ? 2.2 : 2.0)) {
+          if (segmentDistance(fromX, fromZ, d.x, d.z, pos.x, pos.z) < hitR &&
+              lowY < (p.driving ? 2.2 : 2.0)) {
             hurtPlayer(d.damage);
             gone = true;
           }
@@ -754,7 +771,8 @@
           for (var c = 0; c < state.cops.length; c++) {
             var cop = state.cops[c];
             if (cop.state === 'sat') continue;
-            if (dist(d.x, d.z, cop.x, cop.z) < 0.95 && d.y > 0.2 && d.y < 2.3) {
+            if (segmentDistance(fromX, fromZ, d.x, d.z, cop.x, cop.z) < C.COP_HIT_R &&
+                highY > 0.2 && lowY < 2.4) {
               hurtCop(cop, d.damage);
               gone = true;
               break;

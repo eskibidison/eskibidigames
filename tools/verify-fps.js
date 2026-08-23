@@ -145,7 +145,7 @@ const CODES = {
   await cdp.send('Page.navigate', { url });
 
   const evaluate = async expr => {
-    const r = await cdp.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: false });
+    const r = await cdp.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true });
     if (r.exceptionDetails) throw new Error('eval failed: ' + (r.exceptionDetails.exception || {}).description);
     return r.result.value;
   };
@@ -291,6 +291,41 @@ const CODES = {
   await sleep(900);
   await shoot('10-bank-inside');
   console.log(`  bank entry -> ${inside}`);
+
+  // Measure the actual frame rate under the worst case the player complained
+  // about: five stars, police everywhere, and darts in the air.
+  await evaluate(`
+    (function () {
+      S.player.indoors = false;
+      S.player.x = 180; S.player.z = 180;
+      game.giveWeapon('rapid', 9999);
+      game.raiseWanted(5);
+      return 1;
+    })()
+  `);
+  await sleep(12000);
+  const load = await evaluate(`
+    (function () {
+      return { cops: S.cops.length,
+               cars: S.cars.filter(function (c) { return c.kind === 'police'; }).length,
+               darts: S.darts.length };
+    })()
+  `);
+  const fps = await evaluate(`
+    new Promise(function (resolve) {
+      var frames = 0;
+      var started = performance.now();
+      function tick() {
+        frames++;
+        if (performance.now() - started < 2000) requestAnimationFrame(tick);
+        else resolve(Math.round(frames / ((performance.now() - started) / 1000)));
+      }
+      requestAnimationFrame(tick);
+    })
+  `.replace(/\s+/g, ' '));
+  await shoot('11-under-load');
+  console.log(`  under load: ${load.cops} cops, ${load.cars} police cars, ${load.darts} darts`);
+  console.log(`  frame rate (software rendering, no GPU): ${fps} fps`);
 
   const logs = [];
   for (const ev of cdp.events) {

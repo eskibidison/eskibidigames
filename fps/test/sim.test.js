@@ -640,7 +640,7 @@ section('hiding indoors');
 {
   const g = SIM.createGame();
   const s = g.state;
-  const den = s.city.doors.filter(d => d.kind === 'hideout')[0];
+  const den = s.city.doors.filter(d => d.room === 'hideout')[0];
   const from = approachSpot(g, den, SIM.C.AUTO_DOOR_RANGE + 1.6);
   s.player.x = from.x;
   s.player.z = from.z;
@@ -756,7 +756,7 @@ section('doors open for you');
 {
   const g = SIM.createGame();
   const s = g.state;
-  const den = s.city.doors.filter(d => d.kind === 'hideout')[0];
+  const den = s.city.doors.filter(d => d.room === 'hideout')[0];
 
   // Stop outside the trigger, then walk into it. Walking all the way up with
   // the bot would trip the door early and then carry it onto the exit mat.
@@ -768,7 +768,7 @@ section('doors open for you');
 
   // And punching one works too.
   const g2 = SIM.createGame();
-  const den2 = g2.state.city.doors.filter(d => d.kind === 'hideout')[1];
+  const den2 = g2.state.city.doors.filter(d => d.room === 'hideout')[1];
   // Stand at the door directly: the bot walks in straight lines and this one
   // has a building in the way. What is under test is the punch, not pathing.
   g2.state.player.x = den2.x;
@@ -1074,7 +1074,7 @@ section('people move like people');
 section('doors are forgiving');
 {
   const g = SIM.createGame();
-  const doors = g.state.city.doors.filter(d => d.kind === 'hideout');
+  const doors = g.state.city.doors.filter(d => d.room === 'hideout');
   assert.ok(doors.length >= 15, `plenty of buildings you can get into (${doors.length})`);
 
   // Walking at a door from an angle has to work; nobody lines up square first.
@@ -1082,7 +1082,7 @@ section('doors are forgiving');
   const angles = [0, 20, 40, 55, 70];
   for (const degrees of angles) {
     const t = SIM.createGame();
-    const door = t.state.city.doors.filter(d => d.kind === 'hideout')[0];
+    const door = t.state.city.doors.filter(d => d.room === 'hideout')[0];
     const a = (degrees * Math.PI) / 180;
     t.state.player.x = door.x + Math.sin(a) * 5;
     t.state.player.z = door.z - Math.cos(a) * 5;
@@ -1095,6 +1095,89 @@ section('doors are forgiving');
   assert.equal(opened, angles.length,
     `every approach angle gets you in (${opened} of ${angles.length})`);
   ok(`doors open from every approach angle tried, up to ${angles[angles.length - 1]} degrees off`);
+}
+
+// --- 5x. every building has a way in ----------------------------------------
+
+section('going inside buildings');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+
+  // Nearly every building should have a door, not one in five.
+  assert.ok(s.city.doors.length > s.city.buildings.length * 0.9,
+    `almost every building has a door (${s.city.doors.length} doors, ${s.city.buildings.length} buildings)`);
+  ok(`${s.city.doors.length} doors for ${s.city.buildings.length} buildings`);
+
+  // The big ones lead somewhere bigger than a back room.
+  const leadsTo = {};
+  for (const door of s.city.doors) {
+    const key = door.kind === 'bank' ? 'bank' : (door.room || 'hideout');
+    leadsTo[key] = (leadsTo[key] || 0) + 1;
+  }
+  assert.ok(leadsTo.store > 5, `department stores you can walk into (${leadsTo.store})`);
+  assert.ok(leadsTo.lobby > 5, `office lobbies you can walk into (${leadsTo.lobby})`);
+  ok(`interiors: ${Object.entries(leadsTo).map(([k, v]) => `${v} ${k}`).join(', ')}`);
+
+  // Walk into one of each and check you end up in the right room.
+  for (const want of ['store', 'lobby', 'hideout', 'bank']) {
+    const t = SIM.createGame();
+    const door = t.state.city.doors.find(d =>
+      (d.kind === 'bank' ? 'bank' : (d.room || 'hideout')) === want);
+    assert.ok(door, `there is a door leading to a ${want}`);
+
+    t.state.player.x = door.x + Math.sin(door.facing) * 5;
+    t.state.player.z = door.z + Math.cos(door.facing) * 5;
+    faceTowards(t, door.x, door.z);
+    for (let i = 0; i < 260 && !t.state.player.indoors; i++) {
+      t.update(STEP, Object.assign(noInput(), { forward: true }));
+    }
+    assert.equal(t.state.player.indoors, want, `walking into it puts you in the ${want}`);
+    assert.ok(!t.blocked(t.state.player.x, t.state.player.z, SIM.C.PLAYER_R),
+      `and you are not stood in a wall inside the ${want}`);
+  }
+  ok('walked into a department store, an office lobby, a back room and the bank');
+
+  // The department store has to be worth walking into.
+  const storeChests = s.city.chests.filter(c => c.indoors === 'store').length;
+  const storeTills = s.city.loot.filter(l => l.indoors === 'store').length;
+  assert.ok(storeChests >= 8, `the shop floor is stocked (${storeChests} crates)`);
+  assert.ok(storeTills >= 2, `with tills to rob (${storeTills})`);
+  ok(`the department store holds ${storeChests} crates and ${storeTills} tills`);
+
+  // Inside one room you must not be offered loot from another.
+  const t2 = SIM.createGame();
+  const storeDoor = t2.state.city.doors.find(d => d.room === 'store');
+  t2.enterRoom(storeDoor);
+  const near = t2.nearestChest();
+  assert.ok(near.chest, 'there is a crate to hand inside the store');
+  assert.equal(near.chest.indoors, 'store', 'and it belongs to this room, not another one');
+  ok('rooms only offer you their own crates');
+}
+
+// --- 5y. picking a blaster by number ----------------------------------------
+
+section('loadout');
+{
+  const g = SIM.createGame();
+  const s = g.state;
+  g.giveWeapon('blaster', 20);
+  g.giveWeapon('heavy', 8);
+  g.giveWeapon('long', 4);
+
+  const slots = g.inventory();
+  assert.equal(slots.length, 3, 'three blasters on the bar');
+  assert.ok(slots.some(x => x.active), 'one of them is in your hands');
+
+  assert.ok(g.selectSlot(0), 'pressing 1 picks the first');
+  assert.equal(s.player.weapon, slots[0].id, 'and that is what you are holding');
+  assert.ok(g.selectSlot(2), 'pressing 3 picks the third');
+  assert.equal(s.player.weapon, slots[2].id, 'and that is what you are holding');
+  ok('number keys pick a blaster straight off the bar');
+
+  assert.equal(g.selectSlot(7), false, 'a number with nothing in it does nothing');
+  assert.equal(s.player.weapon, slots[2].id, 'and leaves you holding what you had');
+  ok('empty slots are ignored');
 }
 
 // --- 6. health --------------------------------------------------------------

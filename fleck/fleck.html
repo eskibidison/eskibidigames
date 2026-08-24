@@ -66,7 +66,11 @@
   .hbtn:hover{background:linear-gradient(#e0f2b6,#bcdd7c)}
   /* The sound toggle is a small square, NOT another full-width button --
      .hbtn is flex:1, so leaving it default stretched the whole row. */
-  #sndbtn{flex:none;width:32px;padding:3px 0;font-size:15px}
+  /* The two little square buttons at the end of the HUD row. `style` used to
+     be a full-width .hbtn holding a small icon, which left it stranded in a
+     wide empty slot -- it read as broken rather than as a button. */
+  .hbtn.small{flex:none;width:34px;padding:3px 0;font-size:15px}
+  .hbtn.small .ico{height:22px;width:auto;max-width:none}
   .hbtn svg{width:20px;height:20px;flex:none}
   /* Real art replaces the placeholder SVGs. profile and quests arrived as
      COMPLETE buttons with their labels already drawn in, so those two hide
@@ -379,8 +383,8 @@
     <div id="hudbtns">
       <button class="hbtn baked"><img class="ico" id="ico_btn_profile" alt=""><span class="lbl">profile</span></button>
       <button class="hbtn baked"><img class="ico" id="ico_btn_quests" alt=""><span class="lbl">quests</span></button>
-      <button class="hbtn baked" disabled title="not built yet"><img class="ico" id="ico_icon_style" alt=""><span class="lbl">style</span></button>
-      <button class="hbtn" id="sndbtn" title="sound on/off">&#9835;</button>
+      <button class="hbtn small" id="stylebtn" title="style"><img class="ico" id="ico_icon_style" alt=""></button>
+      <button class="hbtn small" id="sndbtn" title="music and sound on/off">&#9835;</button>
     </div>
   </div>
 
@@ -516,83 +520,89 @@ function readyKind(s){
 }
 const ACTION_FOR = {fruit:'harvest', shears:'shear', flower:'plant'};
 const SPECIES = [
-  ['poppy','Poppy',CAT.FLOWER,18,36,9,20],
-  ['yellow_daisy','Yellow Daisy',CAT.FLOWER,16,32,8,20],
-  ['orchid','Orchid',CAT.FLOWER,45,95,24,34],
-  ['daffodil','Daffodil',CAT.FLOWER,35,72,18,28],
-  ['pink_dahlia','Pink Dahlia',CAT.FLOWER,15,30,8,18],
-  ['primrose','Primrose',CAT.FLOWER,55,112,28,38],
-  ['bluebell','Bluebell',CAT.FLOWER,90,185,45,46],
-  ['white_tulip','White Tulip',CAT.FLOWER,130,265,65,56],
-  ['red_ice_plant','Red Ice Plant',CAT.FLOWER,42,86,21,30],
-  ['big_head_clover','Big Head Clover',CAT.FLOWER,26,54,13,22],
-  ['black_fountain_grass','Black Fountain Grass',CAT.FLOWER,60,122,30,38],
-  ['fly_agaric','Fly Agaric',CAT.FLOWER,70,142,35,40],
-  ['ruby_crab_claw','Ruby Crab Claw',CAT.FLOWER,85,172,42,46],
-  ['thistle','Thistle',CAT.FLOWER,38,78,19,28],
-  ['pearly_everlasting','Pearly Everlasting',CAT.FLOWER,48,98,24,32],
-  ['lily_of_the_nile','Lily of the Nile',CAT.FLOWER,72,146,36,42],
-  ['watermelon','Watermelon',CAT.PRODUCE,50,100,20,36],
-  ['strawberries','Strawberries',CAT.PRODUCE,32,66,16,26],
-  ['red_tomatoes','Tomatoes',CAT.PRODUCE,38,78,19,28],
-  ['cabbage','Cabbage',CAT.PRODUCE,30,62,15,24],
-  ['pineapple','Pineapple',CAT.PRODUCE,70,145,35,46],
-  ['eggplant','Eggplant',CAT.PRODUCE,42,86,21,30],
-  ['yellow_corn','Yellow Corn',CAT.PRODUCE,58,118,29,40],
-  ['artichoke','Artichoke',CAT.PRODUCE,64,130,32,42],
-  ['bell_peppers','Bell Peppers',CAT.PRODUCE,46,94,23,32],
-  ['butternut_squash','Butternut Squash',CAT.PRODUCE,52,106,26,36],
-  ['rainbow_chard','Rainbow Chard',CAT.PRODUCE,40,82,20,30],
-  ['water_lily','Water Lily',CAT.WATER,80,160,30,48],
-  ['blue_lotus','Blue Lotus',CAT.WATER,90,180,34,52],
-  ['papyrus','Papyrus',CAT.WATER,65,132,26,42],
-  ['water_shield','Water Shield',CAT.WATER,72,146,29,44],
-  ['blue_flag_iris','Blue Flag Iris',CAT.WATER,30,62,15,24],
-  ['aloe_vera','Aloe Vera',CAT.DESERT,100,200,40,56],
-  ['saguaro','Saguaro',CAT.DESERT,120,240,48,64],
-  ['prickly_pear','Prickly Pear',CAT.DESERT,85,172,34,48],
-  ['ball_cactus','Ball Cactus',CAT.DESERT,70,142,28,42],
-  ['ruby_red_ball','Ruby Red Ball',CAT.DESERT,95,192,38,50],
-  ['barrel_cactus','Barrel Cactus',CAT.DESERT,78,158,31,44],
-  ['rose','Rose',CAT.SHRUB,60,120,25,38],
-  ['azalea','Azalea',CAT.SHRUB,70,135,28,42],
-  ['blueberry','Blueberry',CAT.SHRUB,80,150,30,46],
-  ['lilac','Lilac',CAT.SHRUB,75,142,29,44],
-  ['rosemary','Rosemary',CAT.SHRUB,50,102,20,34],
-  ['blackberry','Blackberry',CAT.SHRUB,66,134,27,40],
-  ['fern','Fern',CAT.SHRUB,44,90,18,30],
-  ['hydrangea','Hydrangea',CAT.SHRUB,88,178,35,48],
-  ['apple','Apple Tree',CAT.TREE,150,300,60,70],
-  ['oak','Oak',CAT.TREE,180,350,70,80],
-  ['maple','Maple',CAT.TREE,170,330,66,78],
-  ['palm','Palm',CAT.TREE,140,280,56,68],
-  ['cherry_blossom','Cherry Blossom',CAT.TREE,260,500,100,96],
-  ['blue_spruce','Blue Spruce',CAT.TREE,220,425,85,88],
-  ['weeping_willow','Weeping Willow',CAT.TREE,240,465,93,92],
-  ['birch','Birch',CAT.TREE,160,320,64,72],
-  ['orange','Orange Tree',CAT.TREE,200,400,80,84],
-  ['peach','Peach Tree',CAT.TREE,210,420,84,86],
-  ['bald_cypress','Bald Cypress',CAT.TREE,320,640,128,110],
-  ['bodhi','Bodhi Tree',CAT.TREE,430,860,172,126],
-  ['cypress','Cypress',CAT.TREE,275,550,110,100],
-  ['eucalyptus','Eucalyptus',CAT.TREE,360,720,144,116],
-  ['magnolia','Magnolia',CAT.TREE,395,790,158,120],
-  ['ornamental_maple','Ornamental Maple',CAT.TREE,480,960,192,132],
-  ['epic_orchid','Epic Orchid',CAT.FLOWER,400,820,165,110],
-  ['epic_feather_plume','Orange Feather Plume',CAT.SHRUB,430,880,176,112],
-  ['epic_corpse_flower','Corpse Flower',CAT.FLOWER,620,1260,252,130],
-  ['epic_ostrich_fern','Ostrich Fern',CAT.SHRUB,360,740,148,100],
-  ['epic_cyan_seaberry','Cyan Seaberry',CAT.SHRUB,480,980,196,116],
-  ['epic_exquisite_gourd','Exquisite Gourd',CAT.PRODUCE,380,780,156,105],
-  ['epic_behemoth_pumpkin','Behemoth Pumpkin',CAT.PRODUCE,520,1060,212,120],
-  ['epic_giant_lotus','Giant Lotus',CAT.WATER,450,920,184,114],
-  ['epic_neon_anemone','Neon Anemone',CAT.WATER,560,1140,228,126],
-  ['legendary_watercomb','Atlantic Watercomb',CAT.WATER,1400,2800,560,195],
-  ['epic_baobab','Baobab',CAT.TREE,700,1400,280,150],
-  ['epic_giant_redwood','Giant Redwood',CAT.TREE,900,1800,360,170],
-  ['epic_blossom_collosom','Blossom Collosom',CAT.TREE,800,1620,324,160],
-  ['legendary_silvanium','Crystalline Silvanium',CAT.TREE,1500,3000,600,200],
-  ['legendary_gigantea','Luminous Gigantea',CAT.TREE,1800,3600,720,220],
+  ['poppy','Poppy',CAT.FLOWER,150,25,9,60],
+  ['yellow_daisy','Yellow Daisy',CAT.FLOWER,15,5,8,60],
+  ['orchid','Orchid',CAT.FLOWER,450,95,24,300],
+  ['daffodil','Daffodil',CAT.FLOWER,350,72,18,240],
+  ['pink_dahlia','Pink Dahlia',CAT.FLOWER,300,15,15,60],
+  ['primrose','Primrose',CAT.FLOWER,450,75,12,60],
+  ['bluebell','Bluebell',CAT.FLOWER,600,100,11,60],
+  ['white_tulip','White Tulip',CAT.FLOWER,900,150,14,60],
+  ['red_ice_plant','Red Ice Plant',CAT.FLOWER,420,86,21,1],
+  ['big_head_clover','Big Head Clover',CAT.FLOWER,260,54,13,1],
+  ['black_fountain_grass','Black Fountain Grass',CAT.FLOWER,600,122,30,2],
+  ['fly_agaric','Fly Agaric',CAT.FLOWER,700,142,35,2],
+  ['ruby_crab_claw','Ruby Crab Claw',CAT.FLOWER,850,172,42,2],
+  ['thistle','Thistle',CAT.FLOWER,380,78,19,1],
+  ['pearly_everlasting','Pearly Everlasting',CAT.FLOWER,480,98,24,1],
+  ['lily_of_the_nile','Lily of the Nile',CAT.FLOWER,720,146,36,2],
+  ['chocolate_cosmo','Chocolate Cosmo',CAT.FLOWER,600,100,11,60],
+  ['watermelon','Watermelon',CAT.PRODUCE,500,100,20,300],
+  ['strawberries','Strawberries',CAT.PRODUCE,320,66,16,180],
+  ['red_tomatoes','Tomatoes',CAT.PRODUCE,380,78,19,240],
+  ['cabbage','Cabbage',CAT.PRODUCE,300,62,15,180],
+  ['pineapple','Pineapple',CAT.PRODUCE,700,145,35,480],
+  ['eggplant','Eggplant',CAT.PRODUCE,440,90,22,300],
+  ['yellow_corn','Yellow Corn',CAT.PRODUCE,400,82,20,240],
+  ['artichoke','Artichoke',CAT.PRODUCE,640,130,32,2],
+  ['bell_peppers','Bell Peppers',CAT.PRODUCE,460,94,23,1],
+  ['butternut_squash','Butternut Squash',CAT.PRODUCE,520,106,26,2],
+  ['rainbow_chard','Rainbow Chard',CAT.PRODUCE,400,82,20,1],
+  ['white_pumpkin','White Pumpkin',CAT.PRODUCE,560,114,28,2],
+  ['zucchini','Zucchini',CAT.PRODUCE,440,90,22,1],
+  ['yellow_tomatoes','Yellow Tomatoes',CAT.PRODUCE,500,102,25,2],
+  ['water_lily','Water Lily',CAT.WATER,800,160,30,480],
+  ['blue_lotus','Blue Lotus',CAT.WATER,900,180,34,540],
+  ['papyrus','Papyrus',CAT.WATER,650,132,26,360],
+  ['water_shield','Water Shield',CAT.WATER,550,112,22,300],
+  ['blue_flag_iris','Blue Flag Iris',CAT.WATER,30,10,15,60],
+  ['aloe_vera','Aloe Vera',CAT.DESERT,1000,200,40,600],
+  ['saguaro','Saguaro',CAT.DESERT,1200,240,48,720],
+  ['prickly_pear','Prickly Pear',CAT.DESERT,850,172,34,480],
+  ['ball_cactus','Ball Cactus',CAT.DESERT,600,122,24,360],
+  ['ruby_red_ball','Ruby Red Ball',CAT.DESERT,750,152,30,420],
+  ['barrel_cactus','Barrel Cactus',CAT.DESERT,780,158,31,2],
+  ['rose','Rose',CAT.SHRUB,600,120,25,360],
+  ['azalea','Azalea',CAT.SHRUB,700,135,28,420],
+  ['blueberry','Blueberry',CAT.SHRUB,800,150,30,480],
+  ['lilac','Lilac',CAT.SHRUB,750,142,29,420],
+  ['rosemary','Rosemary',CAT.SHRUB,550,110,22,300],
+  ['blackberry','Blackberry',CAT.SHRUB,660,134,27,2],
+  ['fern','Fern',CAT.SHRUB,440,90,18,1],
+  ['hydrangea','Hydrangea',CAT.SHRUB,880,178,35,2],
+  ['yellow_anise','Yellow Anise',CAT.SHRUB,740,150,30,2],
+  ['apple','Apple Tree',CAT.TREE,250,50,15,90],
+  ['oak','Oak',CAT.TREE,2500,200,100,1080],
+  ['maple','Maple',CAT.TREE,1500,150,45,720],
+  ['palm','Palm',CAT.TREE,1000,150,25,720],
+  ['cherry_blossom','Cherry Blossom',CAT.TREE,2250,210,90,1080],
+  ['blue_spruce','Blue Spruce',CAT.TREE,2200,350,175,1440],
+  ['weeping_willow','Weeping Willow',CAT.TREE,2400,350,175,1440],
+  ['birch','Birch',CAT.TREE,250,150,50,720],
+  ['orange','Orange Tree',CAT.TREE,350,80,25,270],
+  ['peach','Peach Tree',CAT.TREE,2000,85,30,360],
+  ['bald_cypress','Bald Cypress',CAT.TREE,3200,640,128,5],
+  ['cypress','Cypress',CAT.TREE,2750,550,110,4],
+  ['eucalyptus','Eucalyptus',CAT.TREE,3600,720,144,5],
+  ['rimu','Rimu',CAT.TREE,3400,680,136,5],
+  ['magnolia','Magnolia',CAT.TREE,3950,790,158,5],
+  ['ornamental_maple','Ornamental Maple',CAT.TREE,3500,250,125,1440],
+  ['bodhi','Bodhi Tree',CAT.TREE,4300,860,172,5],
+  ['epic_orchid','Epic Orchid',CAT.FLOWER,3800,780,156,1680],
+  ['epic_feather_plume','Orange Feather Plume',CAT.SHRUB,4700,960,192,1980],
+  ['epic_corpse_flower','Corpse Flower',CAT.FLOWER,4500,920,185,1920],
+  ['epic_ostrich_fern','Ostrich Fern',CAT.SHRUB,4600,940,188,1920],
+  ['epic_cyan_seaberry','Cyan Seaberry',CAT.SHRUB,6000,1200,240,2520],
+  ['epic_exquisite_gourd','Exquisite Gourd',CAT.PRODUCE,3900,800,160,1680],
+  ['epic_behemoth_pumpkin','Behemoth Pumpkin',CAT.PRODUCE,4200,860,172,1800],
+  ['epic_giant_lotus','Giant Lotus',CAT.WATER,4400,900,180,1920],
+  ['epic_neon_anemone','Neon Anemone',CAT.WATER,5000,1020,205,2100],
+  ['legendary_watercomb','Atlantic Watercomb',CAT.WATER,12000,2500,500,4200],
+  ['epic_baobab','Baobab',CAT.TREE,6500,1300,260,2700],
+  ['epic_giant_redwood','Giant Redwood',CAT.TREE,7500,1500,300,3000],
+  ['epic_blossom_collosom','Blossom Collosom',CAT.TREE,4000,820,165,1800],
+  ['legendary_silvanium','Crystalline Silvanium',CAT.TREE,15000,3100,620,4800],
+  ['legendary_gigantea','Luminous Gigantea',CAT.TREE,14000,2900,580,4500],
 ].map(([id,name,cat,cost,coins,xp,grow])=>({id,name,cat,cost,coins,xp,grow}));
 const BY_ID = Object.fromEntries(SPECIES.map(s=>[s.id,s]));
 
@@ -664,6 +674,11 @@ const MIRROR = {east:'west', west:'east', north_east:'north_west', north_west:'n
                 south_east:'south_west', south_west:'south_east'};
 const CARDINAL = {north_west:'north', north_east:'north', south_west:'south', south_east:'south'};
 const FPS = {walk:12, water:10, plant:10, dig:10, shear:10, pick:11, shoot:11, harvest:10};
+// `dig` had NO ART for months -- every direction generated a shovel that
+// morphed into a plate, a spoon and a wine glass, because the base character
+// holds no tool. Regenerating from a wide-canvas Shovel state fixed it. If the
+// clip is ever missing again actAt() falls through to the standing sprite, so
+// digging silently looks like standing still; that is worth knowing.
 const LOOPS = {walk:true};
 
 function clipFrames(action, facing){
@@ -740,7 +755,10 @@ function pxToCell(px,py){
 
 // ---------------------------------------------------------------- state
 const G = {
-  coins:500, gems:0, xp:0, stamina:100, health:100, bolts:2,
+  // 2500 to match Fleck.Core's Garden.StartingCoins. At WIKI prices that is
+  // an apple tree and change, which is roughly where the original starts you
+  // -- at the old placeholder prices it would have bought half the shop.
+  coins:2500, gems:0, xp:0, stamina:100, health:100, bolts:2,
   plants:new Map(), zombies:new Map(), meteors:new Map(), decor:new Map(),
   // Loose Zenomites. Transient on purpose -- they are not saved, they are
   // re-released by whatever Zombie Plants are still standing after a load.
@@ -766,6 +784,10 @@ const G = {
 const key=(c,r)=>c+','+r;
 
 const COST = {plant:6, water:2, harvest:4};
+
+// Two in-game days before a plant wants water, at the same 240x compression
+// the wiki grow times use: 2 * 24 * 3600 / 240 = 720 seconds.
+const DRY_AFTER = 720;
 
 // How close she has to be to work a hex. Roughly one hex, so she acts on a
 // neighbour without shuffling, but walks for anything further.
@@ -961,13 +983,59 @@ const Snd = (() => {
     [N.D4,1],[N.E4,1],[N.C4,2],   [null,4],
   ];
 
+  // ---- battle track ------------------------------------------------------
+  // The garden loop is deliberately sparse and slow. A fight needs the
+  // opposite, so this is a separate set of tables rather than the same tune
+  // played faster: a driving four-on-the-floor kick, a sawtooth bass riff and
+  // a sharp lead in A minor. Same scheduler, same bus, different material --
+  // switching is one flag, so it can change mid-bar without a gap.
+  const NB = {A2:110.00,C3:130.81,D3:146.83,E3:164.81,F3:174.61,G3:196.00,
+              A3:220.00,C4:261.63,D4:293.66,E4:329.63,F4:349.23,G4:392.00,
+              A4:440.00,C5:523.25,D5:587.33,E5:659.25};
+  const BATTLE_BEAT = 0.19;                    // ~158 bpm
+  const BATTLE_BASS = [NB.A2, NB.A2, NB.F3, NB.G3];
+  const BATTLE_LEAD = [
+    [NB.A4,1],[null,1],[NB.C5,1],[NB.A4,1],  [NB.E5,1],[null,1],[NB.D5,2],
+    [NB.C5,1],[null,1],[NB.A4,1],[NB.C5,1],  [NB.D5,1],[NB.C5,1],[NB.A4,2],
+    [NB.F4,1],[null,1],[NB.A4,1],[NB.C5,1],  [NB.E5,2],[NB.D5,2],
+    [NB.C5,1],[NB.A4,1],[NB.G4,1],[NB.A4,1], [null,4],
+  ];
+  /** A kick drum: a pitch drop plus a click of noise. */
+  function kick(at){
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='sine';
+    o.frequency.setValueAtTime(150, at);
+    o.frequency.exponentialRampToValueAtTime(45, at+0.11);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(0.5, at+0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, at+0.16);
+    o.connect(g); g.connect(mFilter);
+    o.start(at); o.stop(at+0.18);
+  }
+  /** A closed hat, so the off-beats have something on them. */
+  function hat(at){
+    const n=Math.floor(ctx.sampleRate*0.035);
+    const buf=ctx.createBuffer(1,n,ctx.sampleRate), d=buf.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(1-i/n);
+    const src=ctx.createBufferSource(); src.buffer=buf;
+    const f=ctx.createBiquadFilter(); f.type='highpass'; f.frequency.value=7000;
+    const g=ctx.createGain(); g.gain.value=0.10;
+    src.connect(f); f.connect(g); g.connect(mFilter);
+    src.start(at);
+  }
+
   let mGain=null, mFilter=null, nextT=0, tuneAt=0, beatAt=0, sched=null;
+  let battle=false;
 
   function musicBus(){
     if(mGain) return mGain;
     mFilter = ctx.createBiquadFilter();
     mFilter.type='lowpass'; mFilter.frequency.value=1500; mFilter.Q.value=0.6;
-    mGain = ctx.createGain(); mGain.gain.value=0.5;
+    // 1.0, not 0.5. The music already sits behind the master gain of 0.22, so
+    // an extra half here put the melody at roughly 0.009 amplitude -- present
+    // in the graph, inaudible in the room. The sound effects bypass this bus,
+    // which is why they could be heard and the music could not.
+    mGain = ctx.createGain(); mGain.gain.value=1.0;
     mFilter.connect(mGain); mGain.connect(master);
     return mGain;
   }
@@ -986,21 +1054,35 @@ const Snd = (() => {
   function schedule(){
     if(!musicOn) return;
     musicBus();
+    // The filter opens up for a fight -- the garden's 1500Hz lowpass is what
+    // makes it feel soft, and leaving it there made the battle track muddy.
+    if(mFilter) mFilter.frequency.value = battle ? 5200 : 1500;
     const horizon = ctx.currentTime + 0.9;      // stay this far ahead
     while(nextT < horizon){
-      const bar = Math.floor(beatAt/4) % CHORDS.length;
-      const [root, chord] = CHORDS[bar];
-
-      if(beatAt % 4 === 0){                     // new bar: bass and pad
-        voice(root, nextT, BEAT*3.6, 'triangle', 0.075, 0.06);
-        chord.forEach((f,k)=> voice(f, nextT+k*0.012, BEAT*3.8, 'sine', 0.030, 0.18));
+      if(battle){
+        const beat = BATTLE_BEAT;
+        const bar  = Math.floor(beatAt/4) % BATTLE_BASS.length;
+        kick(nextT);                                    // four on the floor
+        hat(nextT + beat*0.5);
+        voice(BATTLE_BASS[bar], nextT, beat*0.85, 'sawtooth', 0.16, 0.01);
+        const [note, len] = BATTLE_LEAD[tuneAt % BATTLE_LEAD.length];
+        if(note) voice(note, nextT, beat*len*0.80, 'square', 0.17, 0.008);
+        nextT  += beat*len;
+        beatAt += len;
+        tuneAt += 1;
+      } else {
+        const bar = Math.floor(beatAt/4) % CHORDS.length;
+        const [root, chord] = CHORDS[bar];
+        if(beatAt % 4 === 0){                   // new bar: bass and pad
+          voice(root, nextT, BEAT*3.6, 'triangle', 0.20, 0.06);
+          chord.forEach((f,k)=> voice(f, nextT+k*0.012, BEAT*3.8, 'sine', 0.085, 0.18));
+        }
+        const [note, len] = TUNE[tuneAt % TUNE.length];
+        if(note) voice(note, nextT, BEAT*len*0.92, 'triangle', 0.26, 0.05);
+        nextT  += BEAT*len;
+        beatAt += len;
+        tuneAt += 1;
       }
-      const [note, len] = TUNE[tuneAt % TUNE.length];
-      if(note) voice(note, nextT, BEAT*len*0.92, 'triangle', 0.085, 0.05);
-
-      nextT  += BEAT*len;
-      beatAt += len;
-      tuneAt += 1;
     }
     sched = setTimeout(schedule, 220);
   }
@@ -1013,6 +1095,13 @@ const Snd = (() => {
 
   return {
     play(name){ if(enabled && SFX[name]) SFX[name](); },
+    /** Switch tracks. Restarts the phrase so the new one begins at its top. */
+    battle(on){
+      if(battle===!!on) return;
+      battle=!!on;
+      tuneAt=0; beatAt=0;
+      if(ctx) nextT=Math.max(nextT, ctx.currentTime+0.05);
+    },
     music(on){
       musicOn=on;
       if(on){ start(); if(!sched) tick(); }
@@ -1219,7 +1308,17 @@ function actPlantAgain(c,r){
  * levels 1 -> 4 from there, twelve seconds a stage, whether it appeared on its
  * own or came out of a harvest. Level 0 means it is still a bud.
  */
-const zombieLevel  = z => Math.min(4, Math.floor((G.t-z.born)/12));
+// SOURCED stage durations (Zombie Plants): sprout 12h, juvenile 12h, L1 24h,
+// L2 24h, L3 48h, L4 final. At the 240x compression that is 180s, 180s, 360s,
+// 360s, 720s -- cumulative below. It used to be a flat 12 seconds per level,
+// which took a plant from seed to Level 4 in under a minute.
+const ZP_STAGES = [180, 360, 720, 1080, 1800];   // cumulative seconds
+const zombieLevel = z => {
+  const age = G.t - z.born;
+  let l = 0;
+  for(const t of ZP_STAGES){ if(age >= t) l++; }
+  return Math.min(4, l);
+};
 const zombieSprite = z => { const l=zombieLevel(z); return l<1 ? 'zp_bud' : 'zp_level_'+l; };
 const zombieName   = z => { const l=zombieLevel(z); return l<1 ? 'Zombie Sprout' : 'Zombie Plant  L'+l; };
 
@@ -1239,9 +1338,12 @@ const zombieName   = z => { const l=zombieLevel(z); return l<1 ? 'Zombie Sprout'
 // that is invisible -- combat lands on top of this, it does not replace it.
 const ZENO_KINDS  = ['chomper','spitter','brute'];
 const ZENO_FPS    = 10;
-// Faster than they were. At 20px/s the Brute took nine seconds to cross a
-// hex, which is what made its walk look like running on the spot.
-const ZENO_SPEED  = {chomper:70, spitter:52, brute:46};   // px/sec, brute lumbers
+// She walks at 150px/s, so anything under about 90 is trivially outrun and the
+// fight is just standing still and shooting. The SPITTER is the slug: it is
+// the quickest of the three and will close on her even while she retreats.
+// The Brute still lumbers -- it is the one you can back away from, which is
+// what makes its wind-up readable.
+const ZENO_SPEED  = {chomper:118, spitter:140, brute:88};   // px/sec
 // Raw art runs from 56x90 to a 164x150 Brute, so each kind is normalised to a
 // target height instead of being drawn at natural size. The Brute stays the
 // biggest, but by a readable margin rather than four hexes across.
@@ -1260,7 +1362,7 @@ const ZENO_MAX    = 8;
 // hit reads as the consequence of the swing you can see. Kept gentle on
 // purpose: there is no way to fight back yet, so this must not be able to
 // corner someone and grind them down.
-const ZENO_AGGRO    = HEX_W*3;      // starts paying attention
+const ZENO_AGGRO    = HEX_W*6;      // notices her from further off now
 const ZENO_REACH    = HEX_W*0.9;    // close enough to swing
 const ZENO_ATK_FPS  = 11;
 const ZENO_DAMAGE   = {chomper:4, spitter:3, brute:8};
@@ -1285,21 +1387,31 @@ function zenoAttackFrame(kind, facing, elapsed){
   }
   return null;
 }
-function zenoDeathFrames(kind){
-  const k='zdie:'+kind;
+function zenoDeathFrames(kind, facing){
+  const k='zdie:'+kind+'_'+facing;
   if(CLIP_LEN[k]===undefined){
-    let n=0; while(n<32 && S['zenomites/'+kind+'_death_'+n]) n++;
+    let n=0; while(n<32 && S['zenomites/'+kind+'_death_'+facing+'_'+n]) n++;
     CLIP_LEN[k]=n;
   }
   return CLIP_LEN[k];
 }
-/** The dying clip, HELD on its last frame -- that frame is the corpse. */
-function zenoDeathFrame(kind, elapsed){
-  const n=zenoDeathFrames(kind);
-  if(!n) return null;
-  const i=Math.min(n-1, Math.floor(elapsed*ZENO_ATK_FPS));
-  const img=IMG['zenomites/'+kind+'_death_'+i];
-  return (img && img.complete && img.naturalWidth) ? img : null;
+/**
+ * The dying clip, HELD on its last frame -- that frame is the corpse.
+ *
+ * The key needs the DIRECTION in it. Without it this looked up
+ * `chomper_death_0` while the files are `chomper_death_south_0`, so it never
+ * matched, silently fell back to the standing walk frame, and the death
+ * animation appeared not to exist at all.
+ */
+function zenoDeathFrame(kind, facing, elapsed){
+  for(const cand of fallbackChain(facing)){
+    const n=zenoDeathFrames(kind,cand);
+    if(!n) continue;
+    const i=Math.min(n-1, Math.floor(elapsed*ZENO_ATK_FPS));
+    const img=IMG['zenomites/'+kind+'_death_'+cand+'_'+i];
+    if(img && img.complete && img.naturalWidth) return img;
+  }
+  return null;
 }
 function zenoEmergeFrames(kind){
   const k='zem:'+kind;
@@ -1407,7 +1519,11 @@ function fightReward(lvl){
   const pool = SPECIES.filter(x=>isRare(x.id));
   const plant = lvl>=3 && pool.length ? pool[(Math.random()*pool.length)|0]
                                       : SPECIES[(Math.random()*SPECIES.length)|0];
-  return {coins: 120*lvl + 60, xp: 40*lvl + 20, plant};
+  // Scaled with the rest of the economy when it moved to WIKI prices. At the
+  // old placeholder scale 120/level was a real prize; against a 2500-coin oak
+  // it was pocket change, and a fight you can lose health over should be
+  // worth more than pruning a bush.
+  return {coins: 900*lvl + 400, xp: 120*lvl + 60, plant};
 }
 
 function startFight(c,r,lvl){
@@ -1415,6 +1531,7 @@ function startFight(c,r,lvl){
   G.fight = {c, r, lvl, queue:roster.slice(), spawned:0, total:roster.length,
              next:0.35, reward:fightReward(lvl)};
   Snd.play('fight');
+  Snd.battle(true);                    // the garden loop gives way to the fight
   toast(roster.length===1 ? 'Something is coming up!'
                           : roster.length+' of them are coming up!', true);
 }
@@ -1438,6 +1555,7 @@ function stepFight(dt){
     const rw=f.reward;
     G.fight=null;
     G.zenos.length=0;                           // the bodies clear with it
+    Snd.battle(false);                          // back to the garden
     G.coins+=rw.coins; G.xp+=rw.xp;
     G.seeds[rw.plant.id]=(G.seeds[rw.plant.id]||0)+1;
     showReward(rw);
@@ -1589,7 +1707,7 @@ function actDigUp(c,r){
     const d=DECOR_BY_ID[G.decor.get(k).id];
     if(!spend(COST.plant)) return;
     G.decor.delete(k);
-    actAt('plant',c,r);
+    actAt('dig',c,r);          // the shovel, not the crouch-and-plant reach
     toast('Dug up the '+d.name);
     return;
   }
@@ -1597,7 +1715,7 @@ function actDigUp(c,r){
   const s=BY_ID[p.id];
   if(!spend(COST.harvest)) return;
   G.plants.delete(k);
-  actAt('plant',c,r);
+  actAt('dig',c,r);
   toast(p.dead ? 'Cleared the dead '+s.name : 'Dug up the '+s.name);
 }
 
@@ -1844,6 +1962,7 @@ function buildMarket(){
 document.getElementById('heldx').onclick=()=>{
   G.sel=null; updateHeld(); buildMarket(); toast('Put it back');
 };
+document.getElementById('stylebtn').onclick=()=>toast('Styles are not built yet');
 {
   const b=document.getElementById('sndbtn');
   b.onclick=()=>{ const on=Snd.toggle(); b.style.opacity=on?1:.45; b.textContent=on?'♫':'♫̸'; };
@@ -2220,7 +2339,12 @@ function step(now){
   // which is why "dig up" is the only way to clear a hex.
   for(const p of G.plants.values()){
     const s=BY_ID[p.id];
-    if(!p.dead) p.dry = (G.t-p.watered) > s.grow*1.5;
+    // SOURCED: "All plants need to be watered after a couple of days"
+    // (Fleck FAQ). Two days at the same 240x compression the grow times use is
+    // 720 seconds. It used to be s.grow*1.5, which tied thirst to growth --
+    // so a 60-second flower demanded water every 90 seconds while an oak went
+    // 27 minutes. Thirst is about elapsed time, not about the species.
+    if(!p.dead) p.dry = (G.t-p.watered) > DRY_AFTER;
   }
 
   /** An empty hex, or null after 30 tries. Used by both spawners. */
@@ -2323,7 +2447,7 @@ function seedDemo(){
   spawnZenomite(13,11,'brute');
   G.meteors.set(key(9,3),{c:9,r:3,born:G.t,gems:3});
 
-  G.coins=1240; G.gems=7; G.xp=382; G.stamina=64; G.health=82;
+  G.coins=9400; G.gems=7; G.xp=382; G.stamina=64; G.health=82;
   walkTo(8,7);
   const p=cellToPx(8,7); G.avatar.x=p.x; G.avatar.y=p.y;
   buildMarket();
@@ -2511,7 +2635,7 @@ function draw(){
       const z=e.o;
       let img;
       if(z.dead){
-        img = zenoDeathFrame(z.kind, G.t-z.diedAt) || zenoFrame(z.kind,'south',0);
+        img = zenoDeathFrame(z.kind, z.facing, G.t-z.diedAt) || zenoFrame(z.kind,z.facing,0);
       } else if(z.emergeAt!==undefined){
         // Climbing out of the soil. Falls back to standing still if the clip
         // has not been generated for this one yet.
@@ -2592,7 +2716,12 @@ function draw(){
         // Every Zombie Plant, bud or grown, is a job for the pickaxe, so it
         // wears the hammer. What changes is what happens when you swing: a bud
         // is simply smashed, a grown one lets a fight out.
-        badge(e.x + w*.34, e.y - h + HEX_H*.20 - 2, 'hammer');
+        //
+        // Positioned from the UNPULSED size. w and h above carry the swell, so
+        // pinning the badge to them made it breathe and drift along with the
+        // bulb instead of sitting still above it like every other badge.
+        const bw=img.naturalWidth*scale, bh=img.naturalHeight*scale;
+        badge(e.x + bw*.40, e.y - bh + HEX_H*.22 - 2, 'hammer');
     }
     }
     else if(e.kind==='decor'){

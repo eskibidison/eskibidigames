@@ -299,8 +299,7 @@
 
         if (rnd() < 0.4) guns.push({ x: cx + 4 + rnd() * 6, z: z0 - 3, taken: false });
         if ((i * 3 + j) % 2 === 0) {
-          doors.push({ kind: 'hideout', x: cx - 6, z: z0 - 1.5, facing: Math.PI });
-          // A window beside the door: shoot it out and climb in that way.
+          // A window on the street: shoot it out and climb in that way.
           windows.push({
             x: cx + 2, z: z0 - 1.5, facing: Math.PI,
             health: C.WINDOW_HEALTH, broken: false,
@@ -331,68 +330,120 @@
       }
     }
 
-    // The bank interior. It is a real room in the same world, parked west of
-    // town where nothing else is built, and you are teleported in and out of
-    // it through the bank's front door.
-    var room = { x0: -142, z0: 158, w: 24, d: 20, wall: 4.2 };
-    var interior = {
-      room: room,
-      spawn: { x: room.x0 + room.w - 6, z: room.z0 + room.d / 2 },
-      exitAt: { x: room.x0 + room.w - 1.2, z: room.z0 + room.d / 2 },
-      walls: [],
-    };
-    var T = 0.9;
+    // Interiors are real rooms in the same world, parked west of town where
+    // nothing else is built. You are teleported in through a building's door
+    // and back out by stepping on the mat inside it.
+    //
+    // Sealed on all four sides deliberately: when a room had a doorway you
+    // could walk out of it into open nothing while the game still believed you
+    // were indoors.
+    function makeRoom(x0, z0, w, d, wallHeight) {
+      var T = 0.9;
+      var midZ = z0 + d / 2;
+      var made = {
+        room: { x0: x0, z0: z0, w: w, d: d, wall: wallHeight },
+        spawn: { x: x0 + w - 6, z: midZ },
+        exitAt: { x: x0 + w - 1.2, z: midZ },
+        walls: [
+          { x0: x0 - T, z0: z0 - T, x1: x0, z1: z0 + d + T },
+          { x0: x0 - T, z0: z0 - T, x1: x0 + w + T, z1: z0 },
+          { x0: x0 - T, z0: z0 + d, x1: x0 + w + T, z1: z0 + d + T },
+          { x0: x0 + w, z0: z0 - T, x1: x0 + w + T, z1: z0 + d + T },
+        ],
+        exitZone: { x0: x0 + w - 3, z0: midZ - 2.2, x1: x0 + w - 0.4, z1: midZ + 2.2 },
+        bounds: { x0: x0, z0: z0, x1: x0 + w, z1: z0 + d },
+      };
+      for (var i = 0; i < made.walls.length; i++) boxes.push(made.walls[i]);
+      return made;
+    }
+
+    // The bank interior.
+    var interior = makeRoom(-142, 158, 24, 20, 4.2);
+    var room = interior.room;
     var midZ = room.z0 + room.d / 2;
-    // Sealed on all four sides. There is no gap to wander out of: you leave by
-    // stepping into the exit mat, which teleports you back to the street. When
-    // the room had a doorway you could walk out of it into open nothing while
-    // the game still believed you were indoors.
-    interior.walls.push({ x0: room.x0 - T, z0: room.z0 - T, x1: room.x0, z1: room.z0 + room.d + T });
-    interior.walls.push({ x0: room.x0 - T, z0: room.z0 - T, x1: room.x0 + room.w + T, z1: room.z0 });
-    interior.walls.push({ x0: room.x0 - T, z0: room.z0 + room.d, x1: room.x0 + room.w + T, z1: room.z0 + room.d + T });
-    interior.walls.push({ x0: room.x0 + room.w, z0: room.z0 - T, x1: room.x0 + room.w + T, z1: room.z0 + room.d + T });
-    for (var w = 0; w < interior.walls.length; w++) boxes.push(interior.walls[w]);
-    interior.exitZone = {
-      x0: room.x0 + room.w - 3, z0: midZ - 2.2,
-      x1: room.x0 + room.w - 0.4, z1: midZ + 2.2,
-    };
-    interior.bounds = { x0: room.x0, z0: room.z0, x1: room.x0 + room.w, z1: room.z0 + room.d };
 
     // The prize, at the back of the room.
     loot.push({
-      kind: 'safe', cash: 5200, cool: 0, indoors: true,
+      kind: 'safe', cash: 5200, cool: 0, indoors: 'bank',
       x: room.x0 + 3.5, z: midZ, facing: -Math.PI / 2,
     });
     // Two tills along the side wall, worth grabbing on the way past.
-    loot.push({ kind: 'register', cash: 480, cool: 0, indoors: true,
+    loot.push({ kind: 'register', cash: 480, cool: 0, indoors: 'bank',
       x: room.x0 + room.w / 2, z: room.z0 + 3, facing: Math.PI });
-    loot.push({ kind: 'register', cash: 480, cool: 0, indoors: true,
+    loot.push({ kind: 'register', cash: 480, cool: 0, indoors: 'bank',
       x: room.x0 + room.w / 2, z: room.z0 + room.d - 3, facing: 0 });
 
     // One shared back room behind every forced door. You always come out of
     // the door you went in through, so it does not matter that they match.
-    var den = { x0: -142, z0: 108, w: 14, d: 12, wall: 3.6 };
-    var hideout = {
-      room: den,
-      spawn: { x: den.x0 + den.w - 5.5, z: den.z0 + den.d / 2 },
-      exitAt: { x: den.x0 + den.w - 1.1, z: den.z0 + den.d / 2 },
-      walls: [],
-    };
-    var HT = 0.8, hmid = den.z0 + den.d / 2;
-    hideout.walls.push({ x0: den.x0 - HT, z0: den.z0 - HT, x1: den.x0, z1: den.z0 + den.d + HT });
-    hideout.walls.push({ x0: den.x0 - HT, z0: den.z0 - HT, x1: den.x0 + den.w + HT, z1: den.z0 });
-    hideout.walls.push({ x0: den.x0 - HT, z0: den.z0 + den.d, x1: den.x0 + den.w + HT, z1: den.z0 + den.d + HT });
-    hideout.walls.push({ x0: den.x0 + den.w, z0: den.z0 - HT, x1: den.x0 + den.w + HT, z1: den.z0 + den.d + HT });
-    for (var hw = 0; hw < hideout.walls.length; hw++) boxes.push(hideout.walls[hw]);
-    hideout.exitZone = {
-      x0: den.x0 + den.w - 3, z0: hmid - 2,
-      x1: den.x0 + den.w - 0.4, z1: hmid + 2,
-    };
-    hideout.bounds = { x0: den.x0, z0: den.z0, x1: den.x0 + den.w, z1: den.z0 + den.d };
+    var hideout = makeRoom(-142, 108, 14, 12, 3.6);
+    var den = hideout.room;
 
-    chests.push({ x: den.x0 + 3, z: den.z0 + 3, rot: 0, opened: false, indoors: true });
-    chests.push({ x: den.x0 + 3, z: den.z0 + den.d - 3, rot: 0, opened: false, indoors: true });
-    chests.push({ x: den.x0 + den.w / 2, z: den.z0 + 2.5, rot: 0.4, opened: false, indoors: true });
+    chests.push({ x: den.x0 + 3, z: den.z0 + 3, rot: 0, opened: false, indoors: 'hideout' });
+    chests.push({ x: den.x0 + 3, z: den.z0 + den.d - 3, rot: 0, opened: false, indoors: 'hideout' });
+    chests.push({ x: den.x0 + den.w / 2, z: den.z0 + 2.5, rot: 0.4, opened: false, indoors: 'hideout' });
+
+    // The big places get their own interiors: a department store floor and an
+    // office lobby, both a good deal larger than a back room.
+    var store = makeRoom(-210, 100, 34, 26, 5);
+    var lobby = makeRoom(-210, 146, 22, 18, 4.6);
+
+    // Shelves worth rifling through, and tills at the front.
+    for (var sx = 0; sx < 4; sx++) {
+      for (var sz = 0; sz < 3; sz++) {
+        chests.push({
+          x: store.room.x0 + 6 + sx * 7, z: store.room.z0 + 5 + sz * 8,
+          rot: 0, opened: false, indoors: 'store',
+        });
+      }
+    }
+    loot.push({ kind: 'register', cash: 520, cool: 0, indoors: 'store',
+      x: store.room.x0 + store.room.w - 5, z: store.room.z0 + 5, facing: Math.PI });
+    loot.push({ kind: 'register', cash: 520, cool: 0, indoors: 'store',
+      x: store.room.x0 + store.room.w - 5, z: store.room.z0 + store.room.d - 5, facing: 0 });
+
+    loot.push({ kind: 'safe', cash: 1400, cool: 0, indoors: 'lobby',
+      x: lobby.room.x0 + 3.5, z: lobby.room.z0 + lobby.room.d / 2, facing: -Math.PI / 2 });
+    chests.push({ x: lobby.room.x0 + 6, z: lobby.room.z0 + 3.5, rot: 0, opened: false, indoors: 'lobby' });
+    chests.push({ x: lobby.room.x0 + 6, z: lobby.room.z0 + lobby.room.d - 3.5, rot: 0, opened: false, indoors: 'lobby' });
+
+    var rooms = { bank: interior, hideout: hideout, store: store, lobby: lobby };
+
+    // Which interior a building leads to, by the model standing there.
+    var INSIDE_OF = {
+      'building-k': 'store', 'building-n': 'store',
+      'tower-a': 'lobby', 'tower-c': 'lobby',
+      'bank': 'bank',
+    };
+
+    // Every building gets a way in. The door goes on whichever face has clear
+    // pavement in front of it, so nobody has to hunt for the one marked door.
+    for (var bi = 0; bi < buildings.length; bi++) {
+      var b = buildings[bi];
+      if (b.model === 'bank') continue;              // already has its vault door
+      var kind = INSIDE_OF[b.model] || 'hideout';
+      var faces = [
+        { x: b.x, z: b.z - b.d / 2 - 1.4, facing: Math.PI },
+        { x: b.x, z: b.z + b.d / 2 + 1.4, facing: 0 },
+        { x: b.x - b.w / 2 - 1.4, z: b.z, facing: Math.PI / 2 },
+        { x: b.x + b.w / 2 + 1.4, z: b.z, facing: -Math.PI / 2 },
+      ];
+      for (var f = 0; f < faces.length; f++) {
+        var spot = faces[f];
+        var clear = true;
+        for (var probe = 1.2; probe <= 3.2 && clear; probe += 1) {
+          var px = spot.x + Math.sin(spot.facing) * probe;
+          var pz = spot.z + Math.cos(spot.facing) * probe;
+          for (var bx = 0; bx < boxes.length; bx++) {
+            var solid = boxes[bx];
+            if (px > solid.x0 - 0.6 && px < solid.x1 + 0.6 &&
+                pz > solid.z0 - 0.6 && pz < solid.z1 + 0.6) { clear = false; break; }
+          }
+        }
+        if (!clear) continue;
+        doors.push({ kind: 'building', room: kind, x: spot.x, z: spot.z, facing: spot.facing });
+        break;
+      }
+    }
 
     // Armouries: shopfronts on the pavement where you spend what you steal.
     var stores = [
@@ -411,7 +462,7 @@
     return {
       boxes: boxes, buildings: buildings, loot: loot,
       guns: guns, props: props, blocks: blockInfo,
-      doors: doors, windows: windows, chests: chests,
+      doors: doors, windows: windows, chests: chests, rooms: rooms,
       interior: interior, hideout: hideout, stores: stores
     };
   }
@@ -590,10 +641,10 @@
 
     function nearestLoot() {
       var pos = playerPos(), best = null, bestD = Infinity;
-      var inside = state.player.indoors;
+      var inside = state.player.indoors || false;
       for (var i = 0; i < city.loot.length; i++) {
         var l = city.loot[i];
-        if (!!l.indoors !== !!inside) continue;      // never point through a wall
+        if ((l.indoors || false) !== inside) continue;   // never point through a wall
         var d = dist(pos.x, pos.z, l.x, l.z);
         if (d < bestD) { bestD = d; best = l; }
       }
@@ -1228,8 +1279,7 @@
       // A door in front of you gives way to a shoulder rather than a fist.
       var door = nearestDoor();
       if (door.d < C.DOOR_RANGE && door.at && door.kind === 'in') {
-        if (door.at.kind === 'bank') enterBank(door.at); else enterHideout(door.at);
-        p.doorCooldown = 1.2;
+        enterRoom(door.at);
         raiseWanted(1);
         say('you shouldered the door in', 2);
         return true;
@@ -1263,6 +1313,19 @@
       return gun;
     }
 
+    // Picks a blaster straight off the inventory bar, by its number.
+    function selectSlot(index) {
+      var p = state.player;
+      var mine = [];
+      for (var i = 0; i < WEAPONS.length; i++) if (p.owned[WEAPONS[i].id]) mine.push(WEAPONS[i].id);
+      if (index < 0 || index >= mine.length) return false;
+      if (p.weapon === mine[index]) return false;
+      p.weapon = mine[index];
+      p.ammo = p.ammoFor[p.weapon] || 0;
+      say('holding: ' + weaponById(p.weapon).name, 1.6);
+      return true;
+    }
+
     // Cycles through the blasters you actually own.
     function switchWeapon(step) {
       var p = state.player;
@@ -1287,10 +1350,10 @@
 
     function nearestChest() {
       var pos = playerPos(), best = null, bestD = Infinity;
-      var inside = !!state.player.indoors;
+      var inside = state.player.indoors || false;
       for (var i = 0; i < city.chests.length; i++) {
         var box = city.chests[i];
-        if (box.opened || !!box.indoors !== inside) continue;
+        if (box.opened || (box.indoors || false) !== inside) continue;
         var d = dist(pos.x, pos.z, box.x, box.z);
         if (d < bestD) { bestD = d; best = box; }
       }
@@ -1362,7 +1425,7 @@
       var pos = playerPos();
       var p = state.player;
       if (p.indoors) {
-        var e = (p.indoors === 'hideout' ? city.hideout : city.interior).exitAt;
+        var e = city.rooms[p.indoors].exitAt;
         return { kind: 'out', d: dist(pos.x, pos.z, e.x, e.z) };
       }
       if (p.doorCooldown > 0) return { kind: 'in', d: Infinity, at: null };
@@ -1375,29 +1438,31 @@
       return { kind: 'in', d: bestD, at: best };
     }
 
-    function enterBank(door) {
+    // One way in for every kind of building. The door says which room it leads
+    // to; a department store gets a shop floor, a tower gets a lobby, and
+    // everything else gets a back room.
+    function enterRoom(door) {
       var p = state.player;
-      p.indoors = 'bank';
+      var key = door.kind === 'bank' ? 'bank' : (door.room || 'hideout');
+      var room = city.rooms[key];
+      if (!room) return false;
+      p.indoors = key;
       p.doorCooldown = 1.2;
-      p.returnTo = { x: door.x, z: door.z + 3 };
-      p.x = city.interior.spawn.x;
-      p.z = city.interior.spawn.z;
+      p.returnTo = {
+        x: door.x + Math.sin(door.facing) * 2.4,
+        z: door.z + Math.cos(door.facing) * 2.4,
+      };
+      p.x = room.spawn.x;
+      p.z = room.spawn.z;
       p.yaw = Math.PI / 2;                          // facing into the room
-      say('inside the bank — the safe is at the back', 3);
+      var what = key === 'bank' ? 'the bank — the safe is at the back'
+        : key === 'store' ? 'a department store — plenty to rifle through'
+        : key === 'lobby' ? 'an office lobby' : 'a back room';
+      say('inside ' + what, 3);
+      return true;
     }
 
-    function enterHideout(door) {
-      var p = state.player;
-      p.indoors = 'hideout';
-      p.doorCooldown = 1.2;
-      p.returnTo = { x: door.x, z: door.z + 3 };
-      p.x = city.hideout.spawn.x;
-      p.z = city.hideout.spawn.z;
-      p.yaw = Math.PI / 2;
-      say('you are hidden — wait here and the police give up', 3.4);
-    }
-
-    function leaveBank() {
+    function leaveRoom() {
       var p = state.player;
       p.indoors = false;
       p.doorCooldown = 1.2;
@@ -1502,13 +1567,8 @@
 
       var door = nearestDoor();
       if (door.d < C.DOOR_RANGE) {
-        if (door.kind === 'out') { leaveBank(); return 'leave'; }
-        if (door.at && door.at.kind === 'bank') { enterBank(door.at); return 'enter-bank'; }
-        if (door.at) {                              // a locked door: force it
-          p.forceTarget = door.at;
-          p.forcing = 0.0001;
-          return 'forcing';
-        }
+        if (door.kind === 'out') { leaveRoom(); return 'leave'; }
+        if (door.at) { enterRoom(door.at); return 'enter'; }
       }
 
       var found = nearestCar();
@@ -1601,7 +1661,7 @@
         p.forceTarget = null;
         raiseWanted(1);
         state.stats.brokeIn++;
-        enterHideout(door);
+        enterRoom(door);
       }
     }
 
@@ -1610,8 +1670,9 @@
     // Which room, if any, the player is standing in. Derived from position, so
     // the flag and the world can never drift apart.
     function roomAt(x, z) {
-      if (inRect(x, z, city.interior.bounds)) return 'bank';
-      if (inRect(x, z, city.hideout.bounds)) return 'hideout';
+      for (var key in city.rooms) {
+        if (inRect(x, z, city.rooms[key].bounds)) return key;
+      }
       return false;
     }
 
@@ -1619,8 +1680,8 @@
     function updateExitMat() {
       var p = state.player;
       if (!p.indoors) return;
-      var zone = (p.indoors === 'hideout' ? city.hideout : city.interior).exitZone;
-      if (inRect(p.x, p.z, zone)) leaveBank();
+      var zone = city.rooms[p.indoors].exitZone;
+      if (inRect(p.x, p.z, zone)) leaveRoom();
     }
 
     // Doors open as you walk into them, the way shop doors do. You still have
@@ -1640,15 +1701,11 @@
       if (door.d > C.AUTO_DOOR_RANGE) return;
 
       if (door.kind === 'out') {
-        if (headingFor(pos, (p.indoors === 'hideout' ? city.hideout : city.interior).exitAt)) {
-          leaveBank();
-          p.doorCooldown = 1.2;
-        }
+        if (headingFor(pos, city.rooms[p.indoors].exitAt)) leaveRoom();
         return;
       }
       if (!door.at || !headingFor(pos, door.at)) return;
-      if (door.at.kind === 'bank') enterBank(door.at); else enterHideout(door.at);
-      p.doorCooldown = 1.2;
+      enterRoom(door.at);
     }
 
     // True when the player is walking roughly towards a point.
@@ -1778,12 +1835,15 @@
       currentWeapon: currentWeapon,
       giveWeapon: giveWeapon,
       switchWeapon: switchWeapon,
+      selectSlot: selectSlot,
       useMedkit: useMedkit,
       buy: buy,
       weapons: WEAPONS,
       perks: PERKS,
       inventory: inventory,
       nearestChest: nearestChest,
+      enterRoom: enterRoom,
+      leaveRoom: leaveRoom,
       openChest: openChest,
       awardXp: awardXp,
       playerPos: playerPos,
